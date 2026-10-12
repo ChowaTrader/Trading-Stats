@@ -27,7 +27,7 @@ export default function TradingJournal() {
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal' | 'community'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
-  const [selectedMonth, setSelectedMonth] = useState<number>(6) // 6 = Julio (0-indexed: 0=Jan, 6=Jul)
+  const [selectedMonth, setSelectedMonth] = useState<number>(9) // 9 = Octubre
   
   const [displayMode, setDisplayMode] = useState<DisplayMode>('currency')
   const [dailyRisk, setDailyRisk] = useState<number>(100)
@@ -108,6 +108,47 @@ export default function TradingJournal() {
     await supabase.auth.signOut()
     setUser(null)
     setTrades([])
+  }
+
+  // Eliminar un trade individual
+  const handleDeleteTrade = async (id: string) => {
+    if (!confirm("¿Estás seguro de eliminar esta operación?")) return
+    const { error } = await supabase.from('trades').delete().eq('id', id)
+    if (!error) {
+      setTrades(trades.filter(t => t.id !== id))
+      setSelectedTradeIds(selectedTradeIds.filter(i => i !== id))
+    } else {
+      alert("Error al eliminar la operación.")
+    }
+  }
+
+  // Eliminar trades seleccionados
+  const handleDeleteSelected = async () => {
+    if (selectedTradeIds.length === 0) return
+    if (!confirm(`¿Eliminar los ${selectedTradeIds.length} trades seleccionados?`)) return
+
+    const { error } = await supabase.from('trades').delete().in('id', selectedTradeIds)
+    if (!error) {
+      setTrades(trades.filter(t => !selectedTradeIds.includes(t.id)))
+      setSelectedTradeIds([])
+    } else {
+      alert("Error al eliminar los trades.")
+    }
+  }
+
+  // Eliminar TODOS los datos del usuario
+  const handleDeleteAllData = async () => {
+    if (!confirm("⚠️ ATENCIÓN: ¿Estás completamente seguro de borrar TODOS tus datos de trading? Esta acción no se puede deshacer.")) return
+    
+    const { error } = await supabase.from('trades').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    if (!error) {
+      setTrades([])
+      setSelectedTradeIds([])
+      alert("Todos los datos han sido eliminados correctamente.")
+      setShowImportModal(false)
+    } else {
+      alert("Error al vaciar la base de datos: " + error.message)
+    }
   }
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -282,7 +323,6 @@ export default function TradingJournal() {
   const monthsShortNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
   const monthsFullNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
-  // Agrupación de trades por fecha exacta (YYYY-MM-DD)
   const tradesByDate = useMemo(() => {
     const map: { [key: string]: { pnl: number; r: number; count: number; trades: Trade[] } } = {}
     trades.forEach(t => {
@@ -334,15 +374,13 @@ export default function TradingJournal() {
     return (wins / losses).toFixed(2)
   }, [trades])
 
-  // CALENDARIO CON SEMANA DE LUNES A DOMINGO
+  // CALENDARIO DE LUNES A VIERNES (Excluyendo Sábado y Domingo)
   const calendarWeeks = useMemo(() => {
     const firstDayOfMonth = new Date(selectedYear, selectedMonth, 1)
     const lastDayOfMonth = new Date(selectedYear, selectedMonth + 1, 0)
     
     let currentDay = new Date(firstDayOfMonth)
-    // getDay(): 0=Sun, 1=Mon, ..., 6=Sat. 
-    // Queremos que empiece en Lunes (Mon=0, Tue=1, ..., Sun=6)
-    let dayOfWeek = (currentDay.getDay() + 6) % 7
+    let dayOfWeek = (currentDay.getDay() + 6) % 7 // Lunes = 0, Domingo = 6
     currentDay.setDate(currentDay.getDate() - dayOfWeek)
 
     const weeks = []
@@ -350,7 +388,10 @@ export default function TradingJournal() {
       const weekDays = []
       let weekPnl = 0, weekR = 0, weekTradesCount = 0
 
+      // Iterar solo de Lunes a Viernes (5 días: i < 5)
       for (let i = 0; i < 7; i++) {
+        const isWeekend = i === 5 || i === 6 // Sábado (5) y Domingo (6)
+        
         const year = currentDay.getFullYear()
         const month = String(currentDay.getMonth() + 1).padStart(2, '0')
         const day = String(currentDay.getDate()).padStart(2, '0')
@@ -360,13 +401,16 @@ export default function TradingJournal() {
         const dayNum = currentDay.getDate()
         const data = tradesByDate[dateStr]
 
-        if (isCurrentMonth && data) {
+        if (!isWeekend && isCurrentMonth && data) {
           weekPnl += data.pnl
           weekR += data.r
           weekTradesCount += data.count
         }
 
-        weekDays.push({ dateStr, dayNum, isCurrentMonth, data: isCurrentMonth ? data : null })
+        if (!isWeekend) {
+          weekDays.push({ dateStr, dayNum, isCurrentMonth, data: isCurrentMonth ? data : null })
+        }
+
         currentDay.setDate(currentDay.getDate() + 1)
       }
 
@@ -423,7 +467,7 @@ export default function TradingJournal() {
             onClick={() => { setShowImportModal(true); setImportStatus(null) }}
             className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md transition-colors shadow flex items-center gap-2"
           >
-            <span>📂</span> Importar CSV
+            <span>📂</span> Importar / Gestionar CSV
           </button>
           <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
             <span className="text-xs text-slate-400 font-medium">{user.email}</span>
@@ -489,19 +533,19 @@ export default function TradingJournal() {
               })}
             </div>
 
-            {/* Cuadrícula del Calendario (Lunes a Domingo + Sumatoria Semanal al final) */}
+            {/* Cuadrícula del Calendario (Lunes a Viernes + Sumatoria Semanal) */}
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
               <h2 className="text-lg font-bold text-white flex items-center gap-2"><span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}</h2>
 
-              <div className="grid grid-cols-8 gap-2">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Total'].map((d, i) => (
+              <div className="grid grid-cols-6 gap-2">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Total'].map((d, i) => (
                   <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">{d}</div>
                 ))}
               </div>
 
               <div className="space-y-2">
                 {calendarWeeks.map((week, wIdx) => (
-                  <div key={wIdx} className="grid grid-cols-8 gap-2">
+                  <div key={wIdx} className="grid grid-cols-6 gap-2">
                     {week.days.map((day, dIdx) => (
                       <div 
                         key={dIdx} 
@@ -520,7 +564,7 @@ export default function TradingJournal() {
                         ) : <div className="text-right text-[10px] text-slate-500">{day.isCurrentMonth ? '0 trades' : ''}</div>}
                       </div>
                     ))}
-                    {/* Sumatoria de la Semana al final (Domingo / Total) */}
+                    {/* Sumatoria de la Semana al final */}
                     <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
                       <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
                       <div>
@@ -625,6 +669,9 @@ export default function TradingJournal() {
                   >
                     Establecer Riesgo 1R
                   </button>
+                  <button onClick={handleDeleteSelected} className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+                    🗑️ Eliminar Seleccionados
+                  </button>
                   <button onClick={() => setSelectedTradeIds([])} className="text-xs text-slate-400 hover:text-white">Deseleccionar</button>
                 </div>
               </div>
@@ -654,6 +701,7 @@ export default function TradingJournal() {
                       <th className="p-3">P&L ($)</th>
                       <th className="p-3">R-Multiple</th>
                       <th className="p-3 text-center">Gráfico 📈</th>
+                      <th className="p-3 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -693,10 +741,13 @@ export default function TradingJournal() {
                           <td className="p-3 text-center">
                             <button onClick={() => setActiveChartTrade(t)} className="bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded text-xs text-emerald-400 font-semibold shadow">Ver Gráfico</button>
                           </td>
+                          <td className="p-3 text-center">
+                            <button onClick={() => handleDeleteTrade(t.id)} className="text-rose-400 hover:text-rose-300 px-2 py-1 rounded text-xs font-bold" title="Eliminar trade">🗑️</button>
+                          </td>
                         </tr>
                       ))
                     ) : (
-                      <tr><td colSpan={10} className="p-6 text-center text-slate-500">No hay operaciones que coincidan con los filtros.</td></tr>
+                      <tr><td colSpan={11} className="p-6 text-center text-slate-500">No hay operaciones que coincidan con los filtros.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -810,14 +861,15 @@ export default function TradingJournal() {
         </div>
       )}
 
-      {/* Modal de Importación */}
+      {/* Modal de Importación / Gestión de Datos */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
+          <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative space-y-4">
             <button onClick={() => setShowImportModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white text-sm">✕</button>
-            <h3 className="text-lg font-bold text-white mb-1">Importar Operaciones (CSV)</h3>
-            <p className="text-xs text-slate-400 mb-5">Selecciona tu plataforma</p>
-            <div className="space-y-3 mb-6">
+            <h3 className="text-lg font-bold text-white mb-1">Importar / Gestionar Datos</h3>
+            <p className="text-xs text-slate-400 mb-4">Selecciona tu plataforma o vacía tu base de datos</p>
+            
+            <div className="space-y-3 mb-4">
               {[
                 { id: 'tradervue', name: 'Tradervue', desc: 'Archivo trades.csv (importa tags automáticamente)' },
                 { id: 'das', name: 'DAS Trader Pro', desc: 'Exportación diaria CSV' },
@@ -832,11 +884,22 @@ export default function TradingJournal() {
                 </div>
               ))}
             </div>
+
             {importStatus && <div className={`p-3.5 rounded-lg text-xs mb-4 text-center border ${importStatus.type === 'success' ? 'bg-emerald-950/65 border-emerald-800 text-emerald-300' : 'bg-rose-950/65 border-rose-800 text-rose-300'}`}>{importStatus.message}</div>}
+
             <label className={`block text-center bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg text-xs cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
-              {isUploading ? 'Procesando...' : 'Seleccionar archivo CSV'}
+              {isUploading ? 'Procesando...' : 'Seleccionar archivo CSV e Importar'}
               <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" disabled={isUploading} />
             </label>
+
+            <div className="border-t border-slate-800 pt-4 mt-4">
+              <button 
+                onClick={handleDeleteAllData}
+                className="w-full bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold py-2.5 rounded-lg transition-colors shadow"
+              >
+                ⚠️ Eliminar todos los datos introducidos
+              </button>
+            </div>
           </div>
         </div>
       )}
