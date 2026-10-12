@@ -16,7 +16,6 @@ interface Trade {
   trader: string
   tag?: string
   initialRisk?: number
-  executions?: { price: number; shares: number; side: string; time: string }[]
 }
 
 type PlatformType = 'tradervue' | 'das' | 'sage'
@@ -28,7 +27,7 @@ export default function TradingJournal() {
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal' | 'community'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
-  const [selectedMonth, setSelectedMonth] = useState<number>(9) // 9 = Octubre
+  const [selectedMonth, setSelectedMonth] = useState<number>(6) // 6 = Julio (0-indexed: 0=Jan, 6=Jul)
   
   const [displayMode, setDisplayMode] = useState<DisplayMode>('currency')
   const [dailyRisk, setDailyRisk] = useState<number>(100)
@@ -81,18 +80,18 @@ export default function TradingJournal() {
         .order('id', { ascending: false })
 
       if (!error && data) {
-        const mapped = data.map((t: any) => ({
-          ...t,
-          date: t.date || t.trade_date || new Date().toISOString().split('T')[0],
-          ticker: t.ticker || t.symbol || 'UNKNOWN',
-          rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / (t.initialRisk || dailyRisk) : 0),
-          tag: t.tag || t.tags || 'General',
-          initialRisk: t.initialRisk || dailyRisk,
-          executions: t.executions || [
-            { price: t.price * 0.99, shares: t.shares, side: t.action.includes('L') || t.action === 'B' ? 'BUY' : 'SELL', time: '09:30:00' },
-            { price: t.price, shares: t.shares, side: t.action.includes('L') || t.action === 'B' ? 'SELL' : 'BUY', time: '10:15:00' }
-          ]
-        }))
+        const mapped = data.map((t: any) => {
+          const rawDate = t.date || t.trade_date || new Date().toISOString()
+          const cleanDate = rawDate.split('T')[0].split(' ')[0]
+          return {
+            ...t,
+            date: cleanDate,
+            ticker: t.ticker || t.symbol || 'UNKNOWN',
+            rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / (t.initialRisk || dailyRisk) : 0),
+            tag: t.tag || t.tags || 'General',
+            initialRisk: t.initialRisk || dailyRisk
+          }
+        })
         setTrades(mapped)
 
         const uniqueTags = Array.from(new Set(mapped.map((t: any) => t.tag).filter(Boolean)))
@@ -206,14 +205,18 @@ export default function TradingJournal() {
         if (newTradesToInsert.length > 0) {
           const { data, error } = await supabase.from('trades').insert(newTradesToInsert).select()
           if (!error && data) {
-            const mappedNew = data.map((t: any) => ({
-              ...t,
-              date: t.date || t.trade_date || new Date().toISOString().split('T')[0],
-              ticker: t.ticker || t.symbol || 'UNKNOWN',
-              rMultiple: t.r_multiple ?? (dailyRisk > 0 ? t.pnl / dailyRisk : 0),
-              tag: t.tag || 'General',
-              initialRisk: t.initialRisk || dailyRisk
-            }))
+            const mappedNew = data.map((t: any) => {
+              const rawDate = t.date || t.trade_date || new Date().toISOString()
+              const cleanDate = rawDate.split('T')[0].split(' ')[0]
+              return {
+                ...t,
+                date: cleanDate,
+                ticker: t.ticker || t.symbol || 'UNKNOWN',
+                rMultiple: t.r_multiple ?? (dailyRisk > 0 ? t.pnl / dailyRisk : 0),
+                tag: t.tag || 'General',
+                initialRisk: t.initialRisk || dailyRisk
+              }
+            })
             setTrades(prev => [...mappedNew, ...prev])
             setImportStatus({
               type: 'success',
@@ -279,10 +282,12 @@ export default function TradingJournal() {
   const monthsShortNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
   const monthsFullNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
+  // Agrupación de trades por fecha exacta (YYYY-MM-DD)
   const tradesByDate = useMemo(() => {
     const map: { [key: string]: { pnl: number; r: number; count: number; trades: Trade[] } } = {}
     trades.forEach(t => {
       const d = t.date
+      if (!d) return
       if (!map[d]) map[d] = { pnl: 0, r: 0, count: 0, trades: [] }
       const risk = t.initialRisk || dailyRisk
       map[d].pnl += t.pnl
@@ -298,12 +303,16 @@ export default function TradingJournal() {
       let pnlAcc = 0, rAcc = 0, countAcc = 0
       trades.forEach(t => {
         if (!t.date) return
-        const [yStr, mStr] = t.date.split('-')
-        if (parseInt(yStr, 10) === selectedYear && parseInt(mStr, 10) - 1 === monthIdx) {
-          pnlAcc += t.pnl
-          const risk = t.initialRisk || dailyRisk
-          rAcc += (t.rMultiple || (risk > 0 ? t.pnl / risk : 0))
-          countAcc += 1
+        const parts = t.date.split('-')
+        if (parts.length === 3) {
+          const tradeYear = parseInt(parts[0], 10)
+          const tradeMonth = parseInt(parts[1], 10) - 1
+          if (tradeYear === selectedYear && tradeMonth === monthIdx) {
+            pnlAcc += t.pnl
+            const risk = t.initialRisk || dailyRisk
+            rAcc += (t.rMultiple || (risk > 0 ? t.pnl / risk : 0))
+            countAcc += 1
+          }
         }
       })
       return { pnl: pnlAcc, r: rAcc, count: countAcc }
@@ -325,19 +334,28 @@ export default function TradingJournal() {
     return (wins / losses).toFixed(2)
   }, [trades])
 
+  // CALENDARIO CON SEMANA DE LUNES A DOMINGO
   const calendarWeeks = useMemo(() => {
-    const firstDay = new Date(selectedYear, selectedMonth, 1)
-    const lastDay = new Date(selectedYear, selectedMonth + 1, 0)
-    let currentDay = new Date(firstDay)
-    currentDay.setDate(currentDay.getDate() - currentDay.getDay())
+    const firstDayOfMonth = new Date(selectedYear, selectedMonth, 1)
+    const lastDayOfMonth = new Date(selectedYear, selectedMonth + 1, 0)
+    
+    let currentDay = new Date(firstDayOfMonth)
+    // getDay(): 0=Sun, 1=Mon, ..., 6=Sat. 
+    // Queremos que empiece en Lunes (Mon=0, Tue=1, ..., Sun=6)
+    let dayOfWeek = (currentDay.getDay() + 6) % 7
+    currentDay.setDate(currentDay.getDate() - dayOfWeek)
 
     const weeks = []
-    while (currentDay <= lastDay || weeks.length < 5) {
+    while (currentDay <= lastDayOfMonth || weeks.length < 6) {
       const weekDays = []
       let weekPnl = 0, weekR = 0, weekTradesCount = 0
 
       for (let i = 0; i < 7; i++) {
-        const dateStr = currentDay.toISOString().split('T')[0]
+        const year = currentDay.getFullYear()
+        const month = String(currentDay.getMonth() + 1).padStart(2, '0')
+        const day = String(currentDay.getDate()).padStart(2, '0')
+        const dateStr = `${year}-${month}-${day}`
+
         const isCurrentMonth = currentDay.getMonth() === selectedMonth
         const dayNum = currentDay.getDate()
         const data = tradesByDate[dateStr]
@@ -353,7 +371,7 @@ export default function TradingJournal() {
       }
 
       weeks.push({ weekNum: weeks.length + 1, days: weekDays, weekPnl, weekR, weekTradesCount })
-      if (weeks.length >= 6 && currentDay > lastDay) break
+      if (currentDay > lastDayOfMonth && weeks.length >= 5) break
     }
     return weeks
   }, [selectedYear, selectedMonth, tradesByDate])
@@ -471,12 +489,12 @@ export default function TradingJournal() {
               })}
             </div>
 
-            {/* Cuadrícula del Calendario */}
+            {/* Cuadrícula del Calendario (Lunes a Domingo + Sumatoria Semanal al final) */}
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
               <h2 className="text-lg font-bold text-white flex items-center gap-2"><span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}</h2>
 
               <div className="grid grid-cols-8 gap-2">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((d, i) => (
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Total'].map((d, i) => (
                   <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">{d}</div>
                 ))}
               </div>
@@ -502,6 +520,7 @@ export default function TradingJournal() {
                         ) : <div className="text-right text-[10px] text-slate-500">{day.isCurrentMonth ? '0 trades' : ''}</div>}
                       </div>
                     ))}
+                    {/* Sumatoria de la Semana al final (Domingo / Total) */}
                     <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
                       <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
                       <div>
