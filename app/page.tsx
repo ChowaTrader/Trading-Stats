@@ -1,6 +1,8 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { supabase } from '../lib/supabase'
+import AuthModal from '../components/AuthModal'
 
 interface Trade {
   id: string
@@ -15,34 +17,76 @@ interface Trade {
 }
 
 export default function TradingJournal() {
+  const [user, setUser] = useState<any>(null)
+  const [checkingAuth, setCheckingAuth] = useState(true)
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'leaderboard'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
-  const [selectedMonth, setSelectedMonth] = useState<number>(9) // 9 = October
-  const [trades, setTrades] = useState<Trade[]>([
-    { id: '1', date: '2026-10-01', ticker: 'AAPL', action: 'BUY', shares: 500, price: 180, pnl: -5.72, rMultiple: -0.2, trader: 'ChowaTrader' },
-    { id: '2', date: '2026-10-02', ticker: 'TSLA', action: 'SELL', shares: 300, price: 240, pnl: 66.36, rMultiple: 2.1, trader: 'ChowaTrader' },
-    { id: '3', date: '2026-10-06', ticker: 'NVDA', action: 'BUY', shares: 400, price: 120, pnl: 80.44, rMultiple: 1.8, trader: 'ChowaTrader' },
-    { id: '4', date: '2026-10-07', ticker: 'AMD', action: 'BUY', shares: 600, price: 105, pnl: 104.80, rMultiple: 2.5, trader: 'ChowaTrader' },
-    { id: '5', date: '2026-10-08', ticker: 'SPY', action: 'SELL', shares: 200, price: 570, pnl: 5.61, rMultiple: 0.1, trader: 'Trader2' },
-    { id: '6', date: '2026-10-09', ticker: 'META', action: 'BUY', shares: 250, price: 580, pnl: -264.87, rMultiple: -3.0, trader: 'ChowaTrader' },
-    { id: '7', date: '2026-10-10', ticker: 'AMZN', action: 'BUY', shares: 400, price: 190, pnl: 102.12, rMultiple: 2.2, trader: 'Trader3' },
-  ])
+  const [selectedMonth, setSelectedMonth] = useState<number>(9)
+  const [trades, setTrades] = useState<Trade[]>([])
 
-  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Comprobar sesión de usuario con Supabase
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      setUser(session?.user || null)
+      setCheckingAuth(false)
+    }
+
+    checkUser()
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null)
+      setCheckingAuth(false)
+    })
+
+    return () => {
+      listener.subscription.unsubscribe()
+    }
+  }, [])
+
+  // Cargar trades privados del usuario autenticado
+  useEffect(() => {
+    if (!user) return
+
+    const fetchTrades = async () => {
+      const { data, error } = await supabase
+        .from('trades')
+        .select('*')
+        .order('date', { ascending: false })
+
+      if (!error && data) {
+        setTrades(data)
+      }
+    }
+
+    fetchTrades()
+  }, [user])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setUser(null)
+    setTrades([])
+  }
+
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file || !user) return
+
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const text = event.target?.result as string
       if (!text) return
+
       const lines = text.split('\n')
-      const newTrades: Trade[] = []
+      const newTradesToInsert: any[] = []
+
       lines.forEach((line, idx) => {
         if (idx === 0 || !line.trim()) return
         const cols = line.split(',')
         if (cols.length >= 5) {
-          newTrades.push({
-            id: Math.random().toString(),
+          newTradesToInsert.push({
+            user_id: user.id,
             date: cols[0]?.trim() || new Date().toISOString().split('T')[0],
             ticker: cols[1]?.trim() || 'UNKNOWN',
             action: cols[2]?.trim() || 'BUY',
@@ -50,12 +94,16 @@ export default function TradingJournal() {
             price: parseFloat(cols[4]) || 10,
             pnl: parseFloat(cols[5]) || (Math.random() * 200 - 80),
             rMultiple: parseFloat(cols[6]) || (Math.random() * 3 - 1),
-            trader: 'ChowaTrader'
+            trader: user.email?.split('@')[0] || 'Trader'
           })
         }
       })
-      if (newTrades.length > 0) {
-        setTrades(prev => [...prev, ...newTrades])
+
+      if (newTradesToInsert.length > 0) {
+        const { data, error } = await supabase.from('trades').insert(newTradesToInsert).select()
+        if (!error && data) {
+          setTrades(prev => [...prev, ...data])
+        }
       }
     }
     reader.readAsText(file)
@@ -123,6 +171,18 @@ export default function TradingJournal() {
     return calendarWeeks.reduce((acc, w) => acc + w.weekPnl, 0)
   }, [calendarWeeks])
 
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-[#0b0e14] flex items-center justify-center text-slate-400 text-sm">
+        Verificando sesión...
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <AuthModal onSuccess={() => setCheckingAuth(true)} />
+  }
+
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
@@ -152,16 +212,24 @@ export default function TradingJournal() {
             </button>
           </nav>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition-colors shadow">
             📂 Importar CSV DAS Trader
             <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
           </label>
+          <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
+            <span className="text-xs text-slate-400 font-medium">{user.email}</span>
+            <button 
+              onClick={handleLogout}
+              className="text-xs bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 px-3 py-1.5 rounded-md border border-slate-700 transition-colors"
+            >
+              Salir
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="p-6 max-w-[1500px] mx-auto space-y-6">
-
         <div className="flex items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <select 
@@ -262,27 +330,8 @@ export default function TradingJournal() {
 
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
-                <span className="text-xs text-slate-400 font-medium">P&L Total Net</span>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">+$458.12</div>
-              </div>
-              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
-                <span className="text-xs text-slate-400 font-medium">R-Multiple Acumulado</span>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">+12.4R</div>
-              </div>
-              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
-                <span className="text-xs text-slate-400 font-medium">Win Rate</span>
-                <div className="text-2xl font-bold text-white mt-1">68.5%</div>
-              </div>
-              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
-                <span className="text-xs text-slate-400 font-medium">Profit Factor</span>
-                <div className="text-2xl font-bold text-white mt-1">2.84</div>
-              </div>
-            </div>
-
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6">
-              <h3 className="text-md font-bold text-white mb-4">Registro detallado de Operaciones (DAS Trader)</h3>
+              <h3 className="text-md font-bold text-white mb-4">Registro de Operaciones Privadas (DAS Trader)</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-[#161b22] text-slate-400 uppercase">
@@ -294,7 +343,6 @@ export default function TradingJournal() {
                       <th className="p-3">Precio</th>
                       <th className="p-3">P&L ($)</th>
                       <th className="p-3">R-Multiple</th>
-                      <th className="p-3">Trader</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -311,7 +359,6 @@ export default function TradingJournal() {
                         <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {t.rMultiple}R
                         </td>
-                        <td className="p-3 text-slate-400">{t.trader}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -324,6 +371,7 @@ export default function TradingJournal() {
         {activeTab === 'leaderboard' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl">
             <h3 className="text-lg font-bold text-white mb-4 text-center">🏆 Leaderboard Comunitario (Small Caps)</h3>
+            <p className="text-xs text-slate-400 text-center mb-6">Métricas agregadas anónimas de la comunidad</p>
             <div className="space-y-3">
               {[
                 { rank: 1, name: 'ChowaTrader', pnl: '+$1,420.50', r: '+18.2R', winrate: '74%' },
@@ -347,7 +395,6 @@ export default function TradingJournal() {
             </div>
           </div>
         )}
-
       </main>
     </div>
   )
