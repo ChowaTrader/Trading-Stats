@@ -17,6 +17,7 @@ interface Trade {
 }
 
 type PlatformType = 'tradervue' | 'das' | 'sage'
+type DisplayMode = 'currency' | 'r'
 
 export default function TradingJournal() {
   const [user, setUser] = useState<any>(null)
@@ -24,7 +25,12 @@ export default function TradingJournal() {
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal' | 'community'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
-  const [selectedMonth, setSelectedMonth] = useState<number>(9)
+  const [selectedMonth, setSelectedMonth] = useState<number>(9) // 0-indexed (9 = Octubre)
+  
+  // Nuevos estados para la vista en $ o R y riesgo diario
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('currency')
+  const [dailyRisk, setDailyRisk] = useState<number>(100) // $100 = 1R por defecto
+
   const [trades, setTrades] = useState<Trade[]>([])
   const [journalNote, setJournalNote] = useState('')
 
@@ -66,14 +72,14 @@ export default function TradingJournal() {
           ...t,
           date: t.date || t.trade_date || new Date().toISOString().split('T')[0],
           ticker: t.ticker || t.symbol || 'UNKNOWN',
-          rMultiple: t.r_multiple ?? 0
+          rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / dailyRisk : 0)
         }))
         setTrades(mapped)
       }
     }
 
     fetchTrades()
-  }, [user])
+  }, [user, dailyRisk])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -88,7 +94,6 @@ export default function TradingJournal() {
     setIsUploading(true)
     setImportStatus(null)
 
-    // Verificar sesión actualizada antes de enviar
     const { data: { session } } = await supabase.auth.getSession()
     const activeUserId = session?.user?.id || user?.id
 
@@ -124,8 +129,9 @@ export default function TradingJournal() {
               const rawDate = cols[dateIdx >= 0 ? dateIdx : 0] || ''
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
 
+              const pnlVal = parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0
               const rawR = cols[rIdx >= 0 ? rIdx : 18] || '0'
-              const parsedR = parseFloat(rawR.replace('R', '')) || 0
+              const parsedR = parseFloat(rawR.replace('R', '')) || (dailyRisk > 0 ? pnlVal / dailyRisk : 0)
 
               newTradesToInsert.push({
                 ...(activeUserId ? { user_id: activeUserId } : {}),
@@ -136,7 +142,7 @@ export default function TradingJournal() {
                 action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
                 shares: Math.abs(parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
-                pnl: parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
+                pnl: pnlVal,
                 r_multiple: parsedR,
                 trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
@@ -162,8 +168,9 @@ export default function TradingJournal() {
               const symbolVal = cols[symbolIdx >= 0 ? symbolIdx : 0]?.trim()
               if (!symbolVal || symbolVal === 'Symbol') continue
 
+              const pnlVal = parseFloat(cols[pnlIdx >= 0 ? pnlIdx : 7]) || 0
               const rawR = cols[rIdx >= 0 ? rIdx : 8] || '0'
-              const parsedR = parseFloat(rawR.replace('R', '')) || 0
+              const parsedR = parseFloat(rawR.replace('R', '')) || (dailyRisk > 0 ? pnlVal / dailyRisk : 0)
 
               newTradesToInsert.push({
                 ...(activeUserId ? { user_id: activeUserId } : {}),
@@ -174,7 +181,7 @@ export default function TradingJournal() {
                 action: cols[sideIdx >= 0 ? sideIdx : 1] || 'S',
                 shares: Math.abs(parseFloat(cols[qtyIdx >= 0 ? qtyIdx : 4])) || 0,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 3]) || 0,
-                pnl: parseFloat(cols[pnlIdx >= 0 ? pnlIdx : 7]) || 0,
+                pnl: pnlVal,
                 r_multiple: parsedR,
                 trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
@@ -195,6 +202,7 @@ export default function TradingJournal() {
               if (!symbolVal || symbolVal === 'Symbol' || symbolVal === 'NaN') continue
 
               const rowDate = cols[dateIdx >= 0 ? dateIdx : 4] || new Date().toISOString().split('T')[0]
+              const pnlVal = parseFloat(cols[netAmtIdx >= 0 ? netAmtIdx : 21]) || 0
 
               newTradesToInsert.push({
                 ...(activeUserId ? { user_id: activeUserId } : {}),
@@ -205,8 +213,8 @@ export default function TradingJournal() {
                 action: cols[sideIdx >= 0 ? sideIdx : 6] || 'B',
                 shares: Math.abs(parseFloat(cols[qtyIdx >= 0 ? qtyIdx : 8])) || 0,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 9]) || 0,
-                pnl: parseFloat(cols[netAmtIdx >= 0 ? netAmtIdx : 21]) || 0,
-                r_multiple: 0,
+                pnl: pnlVal,
+                r_multiple: dailyRisk > 0 ? pnlVal / dailyRisk : 0,
                 trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
             }
@@ -220,7 +228,7 @@ export default function TradingJournal() {
               ...t,
               date: t.date || t.trade_date || new Date().toISOString().split('T')[0],
               ticker: t.ticker || t.symbol || 'UNKNOWN',
-              rMultiple: t.r_multiple ?? 0
+              rMultiple: t.r_multiple ?? (dailyRisk > 0 ? t.pnl / dailyRisk : 0)
             }))
             setTrades(prev => [...mappedNew, ...prev])
             setImportStatus({
@@ -246,21 +254,47 @@ export default function TradingJournal() {
     reader.readAsText(file)
   }
 
-  const monthsNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+  const monthsShortNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  const monthsFullNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
   const tradesByDate = useMemo(() => {
-    const map: { [key: string]: { pnl: number; count: number } } = {}
+    const map: { [key: string]: { pnl: number; r: number; count: number } } = {}
     trades.forEach(t => {
-      const d = t.date || '2026-10-12'
-      if (!map[d]) map[d] = { pnl: 0, count: 0 }
+      const d = t.date
+      if (!map[d]) map[d] = { pnl: 0, r: 0, count: 0 }
       map[d].pnl += t.pnl
+      map[d].r += (t.rMultiple || (dailyRisk > 0 ? t.pnl / dailyRisk : 0))
       map[d].count += 1
     })
     return map
-  }, [trades])
+  }, [trades, dailyRisk])
+
+  // P&L acumulados por cada mes para los botones pequeños
+  const monthlySummaries = useMemo(() => {
+    return Array.from({ length: 12 }, (_, monthIdx) => {
+      let pnlAcc = 0
+      let rAcc = 0
+      let tradeCountAcc = 0
+
+      trades.forEach(t => {
+        if (!t.date) return
+        const [yStr, mStr] = t.date.split('-')
+        const tradeYear = parseInt(yStr, 10)
+        const tradeMonth = parseInt(mStr, 10) - 1
+
+        if (tradeYear === selectedYear && tradeMonth === monthIdx) {
+          pnlAcc += t.pnl
+          rAcc += (t.rMultiple || (dailyRisk > 0 ? t.pnl / dailyRisk : 0))
+          tradeCountAcc += 1
+        }
+      })
+
+      return { pnl: pnlAcc, r: rAcc, count: tradeCountAcc }
+    })
+  }, [trades, selectedYear, dailyRisk])
 
   const totalPnl = useMemo(() => trades.reduce((acc, t) => acc + t.pnl, 0), [trades])
-  const totalR = useMemo(() => trades.reduce((acc, t) => acc + t.rMultiple, 0), [trades])
+  const totalR = useMemo(() => trades.reduce((acc, t) => acc + (t.rMultiple || (dailyRisk > 0 ? t.pnl / dailyRisk : 0)), 0), [trades, dailyRisk])
   const winCount = useMemo(() => trades.filter(t => t.pnl > 0).length, [trades])
   const winRate = useMemo(() => trades.length > 0 ? ((winCount / trades.length) * 100).toFixed(1) : '0.0', [trades, winCount])
   const profitFactor = useMemo(() => {
@@ -281,6 +315,7 @@ export default function TradingJournal() {
     while (currentDay <= lastDay || weeks.length < 5) {
       const weekDays = []
       let weekPnl = 0
+      let weekR = 0
       let weekTradesCount = 0
 
       for (let i = 0; i < 7; i++) {
@@ -291,6 +326,7 @@ export default function TradingJournal() {
 
         if (isCurrentMonth && data) {
           weekPnl += data.pnl
+          weekR += data.r
           weekTradesCount += data.count
         }
 
@@ -308,6 +344,7 @@ export default function TradingJournal() {
         weekNum: weeks.length + 1,
         days: weekDays,
         weekPnl,
+        weekR,
         weekTradesCount
       })
 
@@ -319,6 +356,21 @@ export default function TradingJournal() {
   const monthlyPnl = useMemo(() => {
     return calendarWeeks.reduce((acc, w) => acc + w.weekPnl, 0)
   }, [calendarWeeks])
+
+  const monthlyR = useMemo(() => {
+    return calendarWeeks.reduce((acc, w) => acc + w.weekR, 0)
+  }, [calendarWeeks])
+
+  // Función helper para formatear valores según el modo de visualización ($ o R)
+  const formatVal = (pnlAmount: number, rAmount: number, includeSign = true) => {
+    if (displayMode === 'currency') {
+      const prefix = includeSign ? (pnlAmount >= 0 ? '+$' : '-$') : '$'
+      return `${prefix}${Math.abs(pnlAmount).toFixed(2)}`
+    } else {
+      const prefix = includeSign ? (rAmount >= 0 ? '+' : '') : ''
+      return `${prefix}${rAmount.toFixed(1)}R`
+    }
+  }
 
   if (checkingAuth) {
     return (
@@ -402,42 +454,116 @@ export default function TradingJournal() {
         {/* 1. CALENDARIO */}
         {activeTab === 'calendar' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4">
+
+            {/* Barra superior del calendario: Año + Toggle $ / R + Riesgo diario */}
+            <div className="flex flex-col md:flex-row items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4 gap-4 shadow-md">
+              
+              {/* Selección de Año y Meses en Grande */}
               <div className="flex items-center gap-3">
-                <select 
-                  value={selectedMonth} 
-                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                  className="bg-[#161b22] border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none"
-                >
-                  {monthsNames.map((m, idx) => (
-                    <option key={m} value={idx}>{m}</option>
-                  ))}
-                </select>
+                <span className="text-xs text-slate-400 uppercase font-semibold">Año:</span>
                 <select 
                   value={selectedYear} 
                   onChange={(e) => setSelectedYear(Number(e.target.value))}
-                  className="bg-[#161b22] border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none"
+                  className="bg-[#161b22] border border-slate-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500"
                 >
                   {[2024, 2025, 2026, 2027].map(y => (
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
               </div>
+
+              {/* Toggles $ / R & Daily Risk */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 bg-[#161b22] p-1 rounded-lg border border-slate-800">
+                  <button 
+                    onClick={() => setDisplayMode('currency')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                      displayMode === 'currency' 
+                        ? 'bg-emerald-600 text-white shadow' 
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    💵 Dólares ($)
+                  </button>
+                  <button 
+                    onClick={() => setDisplayMode('r')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                      displayMode === 'r' 
+                        ? 'bg-emerald-600 text-white shadow' 
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    🎯 R-Multiple (R)
+                  </button>
+                </div>
+
+                {displayMode === 'r' && (
+                  <div className="flex items-center gap-1.5 bg-[#161b22] px-3 py-1 rounded-lg border border-slate-800">
+                    <span className="text-[11px] text-slate-400 font-medium">1R = $</span>
+                    <input 
+                      type="number"
+                      value={dailyRisk}
+                      onChange={(e) => setDailyRisk(Math.max(1, parseFloat(e.target.value) || 100))}
+                      className="w-16 bg-[#0b0e14] border border-slate-700 text-emerald-400 font-bold text-xs rounded px-1.5 py-0.5 text-center focus:outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Total acumulado del mes seleccionado */}
               <div className="text-right">
-                <span className="text-xs text-slate-400 mr-2">Monthly P&L:</span>
+                <span className="text-xs text-slate-400 mr-2">Net {monthsFullNames[selectedMonth]}:</span>
                 <span className={`text-base font-bold ${monthlyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  ${monthlyPnl.toFixed(2)}
+                  {formatVal(monthlyPnl, monthlyR)}
                 </span>
               </div>
             </div>
 
+            {/* BARRA NAVEGADORA DE MESES (12 Meses Compactos) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2 bg-[#121620] border border-slate-800 rounded-xl p-2 shadow-md">
+              {monthsShortNames.map((mShort, idx) => {
+                const isActive = selectedMonth === idx
+                const summary = monthlySummaries[idx]
+                const isPositive = summary.pnl >= 0
+
+                return (
+                  <button
+                    key={mShort}
+                    onClick={() => setSelectedMonth(idx)}
+                    className={`flex flex-col items-center justify-between p-2 rounded-lg border text-xs transition-all ${
+                      isActive 
+                        ? 'bg-emerald-950/60 border-emerald-500 text-white shadow-lg ring-1 ring-emerald-500' 
+                        : 'bg-[#161b22] border-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className={`font-bold ${isActive ? 'text-emerald-400' : 'text-slate-300'}`}>
+                      {mShort}
+                    </span>
+                    
+                    {summary.count > 0 ? (
+                      <span className={`text-[10px] font-semibold mt-1 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {formatVal(summary.pnl, summary.r)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-600 mt-1">-</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* VISTA EN GRANDE DEL MES SELECCIONADO */}
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
               <div className="flex justify-between items-center mb-2">
-                <h2 className="text-lg font-bold text-white">
-                  {monthsNames[selectedMonth]}, {selectedYear}
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}
                 </h2>
+                <div className="text-xs text-slate-400">
+                  Mostrando resultados en: <span className="font-bold text-emerald-400 uppercase">{displayMode === 'currency' ? 'Dólares ($)' : `R-Multiples (${dailyRisk}$/R)`}</span>
+                </div>
               </div>
 
+              {/* Cabecera de días de la semana */}
               <div className="grid grid-cols-8 gap-2">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((d, i) => (
                   <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">
@@ -446,13 +572,14 @@ export default function TradingJournal() {
                 ))}
               </div>
 
+              {/* Matriz del Calendario */}
               <div className="space-y-2">
                 {calendarWeeks.map((week, wIdx) => (
                   <div key={wIdx} className="grid grid-cols-8 gap-2">
                     {week.days.map((day, dIdx) => (
                       <div 
                         key={dIdx} 
-                        className={`border rounded-lg p-2.5 flex flex-col justify-between min-h-[95px] ${
+                        className={`border rounded-lg p-2.5 flex flex-col justify-between min-h-[95px] transition-all ${
                           !day.isCurrentMonth 
                             ? 'bg-[#0b0e14]/50 border-slate-900 text-slate-600' 
                             : day.data 
@@ -472,23 +599,24 @@ export default function TradingJournal() {
                         {day.isCurrentMonth && day.data ? (
                           <div className="text-right">
                             <span className={`block text-xs font-bold ${day.data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {day.data.pnl >= 0 ? `+$${day.data.pnl.toFixed(2)}` : `-$${Math.abs(day.data.pnl).toFixed(2)}`}
+                              {formatVal(day.data.pnl, day.data.r)}
                             </span>
                             <span className="text-[10px] text-slate-400">{day.data.count} trades</span>
                           </div>
                         ) : (
                           <div className="text-right text-[10px] text-slate-500">
-                            {day.isCurrentMonth ? <>$0<br/>0 trades</> : ''}
+                            {day.isCurrentMonth ? <>- <br/>0 trades</> : ''}
                           </div>
                         )}
                       </div>
                     ))}
 
+                    {/* Resumen semanal */}
                     <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
                       <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
                       <div>
                         <span className={`block text-xs font-bold ${week.weekPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {week.weekPnl >= 0 ? `+$${week.weekPnl.toFixed(2)}` : `-$${Math.abs(week.weekPnl).toFixed(2)}`}
+                          {formatVal(week.weekPnl, week.weekR)}
                         </span>
                         <span className="text-[10px] text-slate-400">{week.weekTradesCount} trades</span>
                       </div>
@@ -507,7 +635,7 @@ export default function TradingJournal() {
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">Net P&L Total</span>
                 <div className={`text-2xl font-bold mt-1 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {totalPnl >= 0 ? `+$${totalPnl.toFixed(2)}` : `-$${Math.abs(totalPnl).toFixed(2)}`}
+                  {formatVal(totalPnl, totalR)}
                 </div>
               </div>
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
@@ -563,7 +691,7 @@ export default function TradingJournal() {
                           ${t.pnl.toFixed(2)}
                         </td>
                         <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {t.rMultiple}R
+                          {t.rMultiple.toFixed(1)}R
                         </td>
                       </tr>
                     ))
@@ -618,7 +746,7 @@ export default function TradingJournal() {
                 </div>
                 <div className="text-right">
                   <span className={`block font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {totalPnl >= 0 ? `+$${totalPnl.toFixed(2)}` : `-$${Math.abs(totalPnl).toFixed(2)}`}
+                    {formatVal(totalPnl, totalR)}
                   </span>
                   <span className="text-xs text-slate-400">{totalR >= 0 ? `+${totalR.toFixed(1)}R` : `${totalR.toFixed(1)}R`}</span>
                 </div>
