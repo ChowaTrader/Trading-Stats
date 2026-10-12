@@ -83,13 +83,14 @@ export default function TradingJournal() {
         const mapped = data.map((t: any) => {
           const rawDate = t.date || t.trade_date || new Date().toISOString()
           const cleanDate = rawDate.split('T')[0].split(' ')[0]
+          const risk = t.initial_risk || t.initialRisk || dailyRisk
           return {
             ...t,
             date: cleanDate,
             ticker: t.ticker || t.symbol || 'UNKNOWN',
-            rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / (t.initialRisk || dailyRisk) : 0),
+            rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / risk : 0),
             tag: t.tag || t.tags || 'General',
-            initialRisk: t.initialRisk || dailyRisk
+            initialRisk: risk
           }
         })
         setTrades(mapped)
@@ -110,7 +111,6 @@ export default function TradingJournal() {
     setTrades([])
   }
 
-  // Eliminar un trade individual
   const handleDeleteTrade = async (id: string) => {
     if (!confirm("¿Estás seguro de eliminar esta operación?")) return
     const { error } = await supabase.from('trades').delete().eq('id', id)
@@ -122,7 +122,6 @@ export default function TradingJournal() {
     }
   }
 
-  // Eliminar trades seleccionados
   const handleDeleteSelected = async () => {
     if (selectedTradeIds.length === 0) return
     if (!confirm(`¿Eliminar los ${selectedTradeIds.length} trades seleccionados?`)) return
@@ -136,9 +135,8 @@ export default function TradingJournal() {
     }
   }
 
-  // Eliminar TODOS los datos del usuario
   const handleDeleteAllData = async () => {
-    if (!confirm("⚠️ ATENCIÓN: ¿Estás completamente seguro de borrar TODOS tus datos de trading? Esta acción no se puede deshacer.")) return
+    if (!confirm("⚠️ ATENCIÓN: ¿Estás completamente seguro de borrar TODOS tus datos de trading?")) return
     
     const { error } = await supabase.from('trades').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     if (!error) {
@@ -195,8 +193,11 @@ export default function TradingJournal() {
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
 
               const pnlVal = parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0
-              const rawR = cols[rIdx >= 0 ? cols.length > 18 ? 18 : rIdx : 18] || '0'
-              const parsedR = parseFloat(rawR.replace('R', '')) || (dailyRisk > 0 ? pnlVal / dailyRisk : 0)
+              
+              // Leer R de Tradervue si existe, o calcularlo
+              const rawR = rIdx >= 0 ? cols[rIdx] : '0'
+              const parsedR = rawR ? parseFloat(rawR.replace('R', '')) : (dailyRisk > 0 ? pnlVal / dailyRisk : 0)
+              
               const parsedTag = tagIdx >= 0 && cols[tagIdx] ? cols[tagIdx].replace(/^"|"$/g, '') : 'Tradervue'
 
               newTradesToInsert.push({
@@ -209,9 +210,9 @@ export default function TradingJournal() {
                 shares: Math.abs(parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
                 pnl: pnlVal,
-                r_multiple: parsedR,
+                r_multiple: isNaN(parsedR) ? 0 : parsedR,
                 tag: parsedTag,
-                initialRisk: dailyRisk,
+                initial_risk: dailyRisk,
                 trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
             }
@@ -236,7 +237,7 @@ export default function TradingJournal() {
                 pnl: pnlVal,
                 r_multiple: pnlVal / dailyRisk,
                 tag: 'General',
-                initialRisk: dailyRisk,
+                initial_risk: dailyRisk,
                 trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
             }
@@ -249,13 +250,14 @@ export default function TradingJournal() {
             const mappedNew = data.map((t: any) => {
               const rawDate = t.date || t.trade_date || new Date().toISOString()
               const cleanDate = rawDate.split('T')[0].split(' ')[0]
+              const risk = t.initial_risk || dailyRisk
               return {
                 ...t,
                 date: cleanDate,
                 ticker: t.ticker || t.symbol || 'UNKNOWN',
-                rMultiple: t.r_multiple ?? (dailyRisk > 0 ? t.pnl / dailyRisk : 0),
+                rMultiple: t.r_multiple ?? (risk > 0 ? t.pnl / risk : 0),
                 tag: t.tag || 'General',
-                initialRisk: t.initialRisk || dailyRisk
+                initialRisk: risk
               }
             })
             setTrades(prev => [...mappedNew, ...prev])
@@ -299,7 +301,7 @@ export default function TradingJournal() {
       if (target) {
         await supabase.from('trades').update({
           tag: target.tag,
-          initialRisk: target.initialRisk,
+          initial_risk: target.initialRisk,
           r_multiple: target.rMultiple
         }).eq('id', id)
       }
@@ -374,13 +376,12 @@ export default function TradingJournal() {
     return (wins / losses).toFixed(2)
   }, [trades])
 
-  // CALENDARIO DE LUNES A VIERNES (Excluyendo Sábado y Domingo)
   const calendarWeeks = useMemo(() => {
     const firstDayOfMonth = new Date(selectedYear, selectedMonth, 1)
     const lastDayOfMonth = new Date(selectedYear, selectedMonth + 1, 0)
     
     let currentDay = new Date(firstDayOfMonth)
-    let dayOfWeek = (currentDay.getDay() + 6) % 7 // Lunes = 0, Domingo = 6
+    let dayOfWeek = (currentDay.getDay() + 6) % 7
     currentDay.setDate(currentDay.getDate() - dayOfWeek)
 
     const weeks = []
@@ -388,10 +389,8 @@ export default function TradingJournal() {
       const weekDays = []
       let weekPnl = 0, weekR = 0, weekTradesCount = 0
 
-      // Iterar solo de Lunes a Viernes (5 días: i < 5)
       for (let i = 0; i < 7; i++) {
-        const isWeekend = i === 5 || i === 6 // Sábado (5) y Domingo (6)
-        
+        const isWeekend = i === 5 || i === 6
         const year = currentDay.getFullYear()
         const month = String(currentDay.getMonth() + 1).padStart(2, '0')
         const day = String(currentDay.getDate()).padStart(2, '0')
@@ -443,7 +442,6 @@ export default function TradingJournal() {
 
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
-      {/* Navbar */}
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
@@ -476,10 +474,8 @@ export default function TradingJournal() {
         </div>
       </header>
 
-      {/* Main Container */}
       <main className="p-6 max-w-[1500px] mx-auto space-y-6">
 
-        {/* 1. CALENDARIO */}
         {activeTab === 'calendar' && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4 gap-4 shadow-md">
@@ -513,7 +509,6 @@ export default function TradingJournal() {
               </div>
             </div>
 
-            {/* Barra compacta de 12 Meses */}
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2 bg-[#121620] border border-slate-800 rounded-xl p-2 shadow-md">
               {monthsShortNames.map((mShort, idx) => {
                 const isActive = selectedMonth === idx
@@ -533,7 +528,6 @@ export default function TradingJournal() {
               })}
             </div>
 
-            {/* Cuadrícula del Calendario (Lunes a Viernes + Sumatoria Semanal) */}
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
               <h2 className="text-lg font-bold text-white flex items-center gap-2"><span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}</h2>
 
@@ -564,7 +558,6 @@ export default function TradingJournal() {
                         ) : <div className="text-right text-[10px] text-slate-500">{day.isCurrentMonth ? '0 trades' : ''}</div>}
                       </div>
                     ))}
-                    {/* Sumatoria de la Semana al final */}
                     <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
                       <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
                       <div>
@@ -579,7 +572,6 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 2. REPORTS */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -603,7 +595,6 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 3. TRADES */}
         {activeTab === 'trades' && (
           <div className="space-y-6">
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col md:flex-row gap-4 justify-between items-center">
@@ -756,7 +747,6 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 4. JOURNAL */}
         {activeTab === 'journal' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
             <h3 className="text-md font-bold text-white">📝 Diario de Trading & Notas Psicológicas</h3>
@@ -765,7 +755,6 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 5. COMMUNITY */}
         {activeTab === 'community' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl text-center">
             <h3 className="text-lg font-bold text-white mb-2">🏆 Leaderboard Comunitario</h3>
@@ -775,7 +764,6 @@ export default function TradingJournal() {
 
       </main>
 
-      {/* MODAL 1: Trades del Día */}
       {dayTradesModalDate && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl relative space-y-4 max-h-[85vh] overflow-y-auto">
@@ -816,7 +804,6 @@ export default function TradingJournal() {
         </div>
       )}
 
-      {/* MODAL 2: Visor Gráfico */}
       {activeChartTrade && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-3xl w-full shadow-2xl relative space-y-5">
@@ -861,7 +848,6 @@ export default function TradingJournal() {
         </div>
       )}
 
-      {/* Modal de Importación / Gestión de Datos */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative space-y-4">
