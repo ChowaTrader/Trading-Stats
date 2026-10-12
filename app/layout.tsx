@@ -12,7 +12,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className="bg-slate-950 text-slate-100 min-h-screen antialiased">
+      <head>
+        {/* CDN de Tailwind para asegurar el renderizado inmediato si falla la compilación local */}
+        <script src="https://cdn.tailwindcss.com"></script>
+      </head>
+      <body className="bg-[#0b0e14] text-slate-200 min-h-screen antialiased">
         {children}
       </body>
     </html>
