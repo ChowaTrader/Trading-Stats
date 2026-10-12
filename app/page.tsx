@@ -64,6 +64,7 @@ export default function TradingJournal() {
       if (!error && data) {
         const mapped = data.map((t: any) => ({
           ...t,
+          ticker: t.ticker || t.symbol || 'UNKNOWN',
           rMultiple: t.r_multiple ?? 0
         }))
         setTrades(mapped)
@@ -112,8 +113,8 @@ export default function TradingJournal() {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
 
             if (cols.length >= 5) {
-              const ticker = cols[symbolIdx >= 0 ? symbolIdx : 2]?.trim()
-              if (!ticker || ticker === 'Symbol' || ticker === 'UNKNOWN') continue
+              const symbolVal = cols[symbolIdx >= 0 ? symbolIdx : 2]?.trim()
+              if (!symbolVal || symbolVal === 'Symbol' || symbolVal === 'UNKNOWN') continue
 
               const rawDate = cols[dateIdx >= 0 ? dateIdx : 0] || ''
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
@@ -124,7 +125,8 @@ export default function TradingJournal() {
               newTradesToInsert.push({
                 user_id: user.id,
                 date: formattedDate,
-                ticker: ticker,
+                symbol: symbolVal,
+                ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
                 shares: Math.abs(parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
@@ -151,8 +153,8 @@ export default function TradingJournal() {
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
             if (cols.length >= 5) {
-              const ticker = cols[symbolIdx >= 0 ? symbolIdx : 0]?.trim()
-              if (!ticker || ticker === 'Symbol') continue
+              const symbolVal = cols[symbolIdx >= 0 ? symbolIdx : 0]?.trim()
+              if (!symbolVal || symbolVal === 'Symbol') continue
 
               const rawR = cols[rIdx >= 0 ? rIdx : 8] || '0'
               const parsedR = parseFloat(rawR.replace('R', '')) || 0
@@ -160,7 +162,8 @@ export default function TradingJournal() {
               newTradesToInsert.push({
                 user_id: user.id,
                 date: fileDate,
-                ticker: ticker,
+                symbol: symbolVal,
+                ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 1] || 'S',
                 shares: Math.abs(parseFloat(cols[qtyIdx >= 0 ? qtyIdx : 4])) || 0,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 3]) || 0,
@@ -181,13 +184,14 @@ export default function TradingJournal() {
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
             if (cols.length >= 8) {
-              const ticker = cols[symbolIdx >= 0 ? symbolIdx : 7]?.trim()
-              if (!ticker || ticker === 'Symbol' || ticker === 'NaN') continue
+              const symbolVal = cols[symbolIdx >= 0 ? symbolIdx : 7]?.trim()
+              if (!symbolVal || symbolVal === 'Symbol' || symbolVal === 'NaN') continue
 
               newTradesToInsert.push({
                 user_id: user.id,
                 date: cols[dateIdx >= 0 ? dateIdx : 4] || new Date().toISOString().split('T')[0],
-                ticker: ticker,
+                symbol: symbolVal,
+                ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 6] || 'B',
                 shares: Math.abs(parseFloat(cols[qtyIdx >= 0 ? qtyIdx : 8])) || 0,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 9]) || 0,
@@ -204,6 +208,7 @@ export default function TradingJournal() {
           if (!error && data) {
             const mappedNew = data.map((t: any) => ({
               ...t,
+              ticker: t.ticker || t.symbol || 'UNKNOWN',
               rMultiple: t.r_multiple ?? 0
             }))
             setTrades(prev => [...mappedNew, ...prev])
