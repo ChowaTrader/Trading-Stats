@@ -51,6 +51,10 @@ export default function TradingJournal() {
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
+  // Estados para ordenar la tabla de Community
+  const [communitySortField, setCommunitySortField] = useState<'trader' | 'winRate' | 'riskReward' | 'pnlR' | 'pnlUsd'>('pnlUsd')
+  const [communitySortAsc, setCommunitySortAsc] = useState(false)
+
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -90,7 +94,8 @@ export default function TradingJournal() {
             ticker: t.ticker || t.symbol || 'UNKNOWN',
             rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / risk : 0),
             tag: t.tag || t.tags || 'General',
-            initialRisk: risk
+            initialRisk: risk,
+            trader: t.trader || 'Trader'
           }
         })
         setTrades(mapped)
@@ -158,6 +163,7 @@ export default function TradingJournal() {
 
     const { data: { session } } = await supabase.auth.getSession()
     const activeUserId = session?.user?.id || user?.id
+    const currentTraderName = session?.user?.email?.split('@')[0] || 'Trader'
 
     const reader = new FileReader()
     reader.onload = async (event) => {
@@ -210,7 +216,7 @@ export default function TradingJournal() {
                 r_multiple: isNaN(parsedR) ? 0 : parsedR,
                 tag: parsedTag,
                 initial_risk: dailyRisk,
-                trader: session?.user?.email?.split('@')[0] || 'Trader'
+                trader: currentTraderName
               })
             }
           }
@@ -235,7 +241,7 @@ export default function TradingJournal() {
                 r_multiple: pnlVal / dailyRisk,
                 tag: 'General',
                 initial_risk: dailyRisk,
-                trader: session?.user?.email?.split('@')[0] || 'Trader'
+                trader: currentTraderName
               })
             }
           }
@@ -254,7 +260,8 @@ export default function TradingJournal() {
                 ticker: t.ticker || t.symbol || 'UNKNOWN',
                 rMultiple: t.r_multiple ?? (risk > 0 ? t.pnl / risk : 0),
                 tag: t.tag || 'General',
-                initialRisk: risk
+                initialRisk: risk,
+                trader: t.trader || currentTraderName
               }
             })
             setTrades(prev => [...mappedNew, ...prev])
@@ -410,6 +417,79 @@ export default function TradingJournal() {
   const largestLoss = useMemo(() => trades.length > 0 ? Math.min(...trades.map(t => t.pnl)) : 0, [trades])
   const largestGainR = useMemo(() => trades.length > 0 ? Math.max(...trades.map(t => t.rMultiple)) : 0, [trades])
   const largestLossR = useMemo(() => trades.length > 0 ? Math.min(...trades.map(t => t.rMultiple)) : 0, [trades])
+
+  // Cálculo de Miembros para el Community Leaderboard
+  const communityMembers = useMemo(() => {
+    const map: { [traderName: string]: { trades: Trade[]; wins: number; totalPnl: number; totalR: number; grossWins: number; grossLosses: number } } = {}
+
+    trades.forEach(t => {
+      const name = t.trader || 'Trader'
+      if (!map[name]) {
+        map[name] = { trades: [], wins: 0, totalPnl: 0, totalR: 0, grossWins: 0, grossLosses: 0 }
+      }
+      map[name].trades.push(t)
+      map[name].totalPnl += t.pnl
+      map[name].totalR += t.rMultiple
+      if (t.pnl > 0) {
+        map[name].wins += 1
+        map[name].grossWins += t.pnl
+      } else if (t.pnl < 0) {
+        map[name].grossLosses += Math.abs(t.pnl)
+      }
+    })
+
+    const membersList = Object.keys(map).map(name => {
+      const data = map[name]
+      const totalTrades = data.trades.length
+      const wRate = totalTrades > 0 ? (data.wins / totalTrades) * 100 : 0
+      const rReward = data.grossLosses > 0 ? data.grossWins / data.grossLosses : (data.grossWins > 0 ? 99 : 0)
+
+      return {
+        trader: name,
+        totalTrades,
+        winRate: wRate,
+        riskReward: rReward,
+        pnlR: data.totalR,
+        pnlUsd: data.totalPnl
+      }
+    })
+
+    // Ordenamiento
+    return membersList.sort((a, b) => {
+      let valA = a[communitySortField]
+      let valB = b[communitySortField]
+      if (typeof valA === 'string') {
+        return communitySortAsc ? valA.localeCompare(valB as string) : (valB as string).localeCompare(valA)
+      }
+      return communitySortAsc ? (valA as number) - (valB as number) : (valB as number) - (valA as number)
+    })
+  }, [trades, communitySortField, communitySortAsc])
+
+  // Promedios globales de la comunidad
+  const communityAverages = useMemo(() => {
+    if (communityMembers.length === 0) return { avgWinRate: 0, avgRiskReward: 0, avgPnlR: 0, avgPnlUsd: 0 }
+    const sumWin = communityMembers.reduce((acc, m) => acc + m.winRate, 0)
+    const sumRR = communityMembers.reduce((acc, m) => acc + m.riskReward, 0)
+    const sumR = communityMembers.reduce((acc, m) => acc + m.pnlR, 0)
+    const sumUsd = communityMembers.reduce((acc, m) => acc + m.pnlUsd, 0)
+    const count = communityMembers.length
+
+    return {
+      avgWinRate: sumWin / count,
+      avgRiskReward: sumRR / count,
+      avgPnlR: sumR / count,
+      avgPnlUsd: sumUsd / count
+    }
+  }, [communityMembers])
+
+  const handleSort = (field: 'trader' | 'winRate' | 'riskReward' | 'pnlR' | 'pnlUsd') => {
+    if (communitySortField === field) {
+      setCommunitySortAsc(!communitySortAsc)
+    } else {
+      setCommunitySortField(field)
+      setCommunitySortAsc(false)
+    }
+  }
 
   const calendarWeeks = useMemo(() => {
     const firstDayOfMonth = new Date(selectedYear, selectedMonth, 1)
@@ -608,10 +688,9 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 2. REPORTS (Gráficos y Estadísticas Avanzadas con selector $ o R) */}
+        {/* 2. REPORTS */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
-            {/* Controles de visualización $ / R */}
             <div className="flex justify-between items-center bg-[#121620] border border-slate-800 rounded-xl p-4 shadow-md">
               <h2 className="text-base font-bold text-white flex items-center gap-2"><span>📊</span> Rendimiento y Estadísticas Avanzadas</h2>
               <div className="flex items-center gap-2 bg-[#161b22] p-1 rounded-lg border border-slate-800">
@@ -620,13 +699,9 @@ export default function TradingJournal() {
               </div>
             </div>
 
-            {/* Gráficos 1 y 2: Daily P&L y Cumulative P&L */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Gross Daily P&L */}
               <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">GROSS DAILY {displayMode === 'currency' ? 'P&L ($)' : 'P&L (R)'}</span>
-                </div>
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">GROSS DAILY {displayMode === 'currency' ? 'P&L ($)' : 'P&L (R)'}</span>
                 <div className="h-64 flex items-end gap-1 border-b border-slate-800 pb-2 overflow-x-auto relative px-2">
                   <div className="absolute inset-0 flex items-center pointer-events-none"><div className="w-full border-t border-slate-800/80"></div></div>
                   {sortedDailyData.map((d, i) => {
@@ -641,7 +716,6 @@ export default function TradingJournal() {
                           className={`w-full rounded-t transition-all ${isPositive ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-rose-500 hover:bg-rose-400'}`}
                           style={{ height: `${Math.max(heightPercent, 4)}%` }}
                         ></div>
-                        {/* Tooltip */}
                         <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col bg-[#161b22] border border-slate-700 text-[10px] text-white p-1.5 rounded z-20 whitespace-nowrap shadow-xl">
                           <span className="font-bold">{d.date}</span>
                           <span className={isPositive ? 'text-emerald-400' : 'text-rose-400'}>{formatVal(d.dailyPnl, d.dailyR)}</span>
@@ -650,23 +724,11 @@ export default function TradingJournal() {
                     )
                   })}
                 </div>
-                <div className="flex justify-between text-[10px] text-slate-500">
-                  <span>{sortedDailyData[0]?.date || ''}</span>
-                  <span>{sortedDailyData[sortedDailyData.length - 1]?.date || ''}</span>
-                </div>
               </div>
 
-              {/* Gross Cumulative P&L */}
               <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">GROSS CUMULATIVE {displayMode === 'currency' ? 'P&L ($)' : 'P&L (R)'}</span>
-                </div>
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">GROSS CUMULATIVE {displayMode === 'currency' ? 'P&L ($)' : 'P&L (R)'}</span>
                 <div className="h-64 border-b border-slate-800 pb-2 relative flex items-end">
-                  <div className="absolute inset-0 flex flex-col justify-between pointer-events-none p-2">
-                    <div className="border-t border-slate-800/80"></div>
-                    <div className="border-t border-slate-800/80"></div>
-                    <div className="border-t border-slate-800/80"></div>
-                  </div>
                   <svg className="w-full h-full overflow-visible z-10" viewBox="0 0 500 200" preserveAspectRatio="none">
                     {(() => {
                       if (sortedDailyData.length === 0) return null
@@ -682,119 +744,9 @@ export default function TradingJournal() {
                         return `${x},${y}`
                       }).join(' ')
 
-                      return (
-                        <polyline fill="none" stroke="#10b981" strokeWidth="2.5" points={points} />
-                      )
+                      return <polyline fill="none" stroke="#10b981" strokeWidth="2.5" points={points} />
                     })()}
                   </svg>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-500">
-                  <span>{sortedDailyData[0]?.date || ''}</span>
-                  <span>{sortedDailyData[sortedDailyData.length - 1]?.date || ''}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Gráfico 3: Cumulative Drawdown */}
-            <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">CUMULATIVE DRAWDOWN</span>
-              </div>
-              <div className="h-64 border-b border-slate-800 pb-2 relative flex items-end">
-                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none p-2">
-                  <div className="border-t border-slate-800/80"></div>
-                  <div className="border-t border-slate-800/80"></div>
-                  <div className="border-t border-slate-800/80"></div>
-                </div>
-                <svg className="w-full h-full overflow-visible z-10" viewBox="0 0 500 200" preserveAspectRatio="none">
-                  {(() => {
-                    if (sortedDailyData.length === 0) return null
-                    const values = sortedDailyData.map(d => displayMode === 'currency' ? d.drawdownPnl : d.drawdownR)
-                    const minVal = Math.min(...values, -1)
-                    const maxVal = 0
-                    const range = Math.abs(minVal) || 1
-
-                    const points = sortedDailyData.map((d, idx) => {
-                      const val = displayMode === 'currency' ? d.drawdownPnl : d.drawdownR
-                      const x = (idx / (sortedDailyData.length - 1 || 1)) * 500
-                      const y = 20 - (val / minVal) * 160
-                      return `${x},${y}`
-                    }).join(' ')
-
-                    return (
-                      <polyline fill="none" stroke="#f43f5e" strokeWidth="2.5" points={points} />
-                    )
-                  })()}
-                </svg>
-              </div>
-              <div className="flex justify-between text-[10px] text-slate-500">
-                <span>{sortedDailyData[0]?.date || ''}</span>
-                <span>{sortedDailyData[sortedDailyData.length - 1]?.date || ''}</span>
-              </div>
-            </div>
-
-            {/* Tabla de Estadísticas Avanzadas (Stats) */}
-            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Stats</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-800 gap-4 text-xs">
-                {/* Columna 1 */}
-                <div className="space-y-3 pr-2">
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Total Gain/Loss</span>
-                    <span className={`font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatVal(totalPnl, totalR)}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Average Daily Gain/Loss</span>
-                    <span className="font-bold text-white">{formatVal(sortedDailyData.length ? totalPnl / sortedDailyData.length : 0, sortedDailyData.length ? totalR / sortedDailyData.length : 0)}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Average Trade Gain/Loss</span>
-                    <span className="font-bold text-white">{formatVal(trades.length ? totalPnl / trades.length : 0, trades.length ? totalR / trades.length : 0)}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Total Number of Trades</span>
-                    <span className="font-bold text-white">{trades.length}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Profit Factor</span>
-                    <span className="font-bold text-white">{profitFactor}</span>
-                  </div>
-                </div>
-
-                {/* Columna 2 */}
-                <div className="space-y-3 px-2">
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Largest Gain</span>
-                    <span className="font-bold text-emerald-400">{displayMode === 'currency' ? `+$${largestGain.toFixed(2)}` : `+${largestGainR.toFixed(2)}R`}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Average Winning Trade</span>
-                    <span className="font-bold text-emerald-400">{displayMode === 'currency' ? `+$${winCount > 0 ? (trades.filter(t => t.pnl > 0).reduce((a, b) => a + b.pnl, 0) / winCount).toFixed(2) : '0.00'}` : `+${winCount > 0 ? (trades.filter(t => t.rMultiple > 0).reduce((a, b) => a + b.rMultiple, 0) / winCount).toFixed(2) : '0.00'}R`}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Number of Winning Trades</span>
-                    <span className="font-bold text-white">{winCount} ({winRate}%)</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Win Rate</span>
-                    <span className="font-bold text-white">{winRate}%</span>
-                  </div>
-                </div>
-
-                {/* Columna 3 */}
-                <div className="space-y-3 pl-2">
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Largest Loss</span>
-                    <span className="font-bold text-rose-400">{displayMode === 'currency' ? `-$${Math.abs(largestLoss).toFixed(2)}` : `${largestLossR.toFixed(2)}R`}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Average Losing Trade</span>
-                    <span className="font-bold text-rose-400">{displayMode === 'currency' ? `-$${lossCount > 0 ? Math.abs(trades.filter(t => t.pnl < 0).reduce((a, b) => a + b.pnl, 0) / lossCount).toFixed(2) : '0.00'}` : `${lossCount > 0 ? (trades.filter(t => t.rMultiple < 0).reduce((a, b) => a + b.rMultiple, 0) / lossCount).toFixed(2) : '0.00'}R`}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-800/60">
-                    <span className="text-slate-400">Number of Losing Trades</span>
-                    <span className="font-bold text-white">{lossCount} ({trades.length > 0 ? ((lossCount / trades.length) * 100).toFixed(1) : '0.0'}%)</span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -963,11 +915,83 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 5. COMMUNITY */}
+        {/* 5. COMMUNITY (Leaderboard Completo y Ordenable con Promedios) */}
         {activeTab === 'community' && (
-          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl text-center">
-            <h3 className="text-lg font-bold text-white mb-2">🏆 Leaderboard Comunitario</h3>
-            <p className="text-xs text-slate-400">Win Rate: {winRate}% | P&L: ${totalPnl.toFixed(2)}</p>
+          <div className="space-y-6">
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
+              <h3 className="text-md font-bold text-white flex items-center gap-2"><span>🏆</span> Promedios Globales de la Comunidad</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 font-medium">Win Ratio Medio</span>
+                  <div className="text-xl font-bold text-white mt-1">{communityAverages.avgWinRate.toFixed(1)}%</div>
+                </div>
+                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 font-medium">Risk/Reward Medio</span>
+                  <div className="text-xl font-bold text-white mt-1">{communityAverages.avgRiskReward.toFixed(2)}</div>
+                </div>
+                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 font-medium">P&L Medio (R)</span>
+                  <div className={`text-xl font-bold mt-1 ${communityAverages.avgPnlR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {communityAverages.avgPnlR >= 0 ? `+${communityAverages.avgPnlR.toFixed(2)}R` : `${communityAverages.avgPnlR.toFixed(2)}R`}
+                  </div>
+                </div>
+                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
+                  <span className="text-xs text-slate-400 font-medium">P&L Medio ($)</span>
+                  <div className={`text-xl font-bold mt-1 ${communityAverages.avgPnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {communityAverages.avgPnlUsd >= 0 ? `+$${communityAverages.avgPnlUsd.toFixed(2)}` : `-$${Math.abs(communityAverages.avgPnlUsd).toFixed(2)}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
+              <h3 className="text-md font-bold text-white">📋 Leaderboard de Miembros (Ordenable)</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-[#161b22] text-slate-400 uppercase">
+                    <tr>
+                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('trader')}>
+                        Miembro {communitySortField === 'trader' ? (communitySortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('winRate')}>
+                        Win Ratio {communitySortField === 'winRate' ? (communitySortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('riskReward')}>
+                        Risk / Reward {communitySortField === 'riskReward' ? (communitySortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('pnlR')}>
+                        P&L (R) {communitySortField === 'pnlR' ? (communitySortAsc ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('pnlUsd')}>
+                        P&L ($) {communitySortField === 'pnlUsd' ? (communitySortAsc ? '▲' : '▼') : ''}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {communityMembers.length > 0 ? (
+                      communityMembers.map((m, idx) => (
+                        <tr key={idx} className="hover:bg-[#161b22]/50">
+                          <td className="p-3 font-bold text-white flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                            {m.trader}
+                          </td>
+                          <td className="p-3">{m.winRate.toFixed(1)}%</td>
+                          <td className="p-3">{m.riskReward.toFixed(2)}</td>
+                          <td className={`p-3 font-bold ${m.pnlR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {m.pnlR >= 0 ? `+${m.pnlR.toFixed(2)}R` : `${m.pnlR.toFixed(2)}R`}
+                          </td>
+                          <td className={`p-3 font-bold ${m.pnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {m.pnlUsd >= 0 ? `+$${m.pnlUsd.toFixed(2)}` : `-$${Math.abs(m.pnlUsd).toFixed(2)}`}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={5} className="p-6 text-center text-slate-500">No hay datos de miembros disponibles.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
