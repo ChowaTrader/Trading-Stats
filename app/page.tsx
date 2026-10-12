@@ -65,7 +65,12 @@ export default function TradingJournal() {
         .order('date', { ascending: false })
 
       if (!error && data) {
-        setTrades(data)
+        // Mapear r_multiple de DB a rMultiple del cliente
+        const mapped = data.map((t: any) => ({
+          ...t,
+          rMultiple: t.r_multiple ?? 0
+        }))
+        setTrades(mapped)
       }
     }
 
@@ -78,7 +83,7 @@ export default function TradingJournal() {
     setTrades([])
   }
 
-  // Procesador robusto y limpio de archivos CSV
+  // Parser específico según la plataforma seleccionada
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !user) return
@@ -96,19 +101,19 @@ export default function TradingJournal() {
         if (lines.length < 2) throw new Error("El archivo CSV no contiene suficientes datos.")
 
         const newTradesToInsert: any[] = []
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+
+        const getIndex = (names: string[]) => headers.findIndex(h => names.some(n => h.toLowerCase() === n.toLowerCase()))
 
         if (selectedPlatform === 'tradervue') {
-          const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
-          
-          const getIndex = (names: string[]) => headers.findIndex(h => names.some(n => h.toLowerCase() === n.toLowerCase()))
-
+          // Parser Tradervue (ej: trades.csv)
           const dateIdx = getIndex(['Open Datetime', 'Date'])
           const symbolIdx = getIndex(['Symbol', 'Ticker'])
           const sideIdx = getIndex(['Side', 'Action'])
           const volumeIdx = getIndex(['Volume', 'Shares'])
           const priceIdx = getIndex(['Entry Price', 'Price'])
           const netPnlIdx = getIndex(['Net P&L', 'P&L'])
-          const rIdx = getIndex(['P&L (R)', 'rMultiple'])
+          const rIdx = getIndex(['P&L (R)', 'rMultiple', 'R'])
 
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
@@ -116,7 +121,7 @@ export default function TradingJournal() {
               const rawDate = cols[dateIdx >= 0 ? dateIdx : 0] || ''
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
               
-              const rawR = cols[rIdx >= 0 ? rIdx : 18] || '0'
+              const rawR = cols[rIdx >= 0 ? rIdx : 17] || '0'
               const parsedR = parseFloat(rawR.replace('R', '')) || 0
 
               newTradesToInsert.push({
@@ -127,15 +132,41 @@ export default function TradingJournal() {
                 shares: parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4]) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 10,
                 pnl: parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
-                rMultiple: parsedR,
+                r_multiple: parsedR,
+                trader: user.email?.split('@')[0] || 'Trader'
+              })
+            }
+          }
+        } else if (selectedPlatform === 'das') {
+          // Parser DAS Trader Pro
+          const dateIdx = getIndex(['Date', 'Fecha', 'Time'])
+          const symbolIdx = getIndex(['Symbol', 'Ticker'])
+          const sideIdx = getIndex(['Side', 'Action', 'Buy/Sell'])
+          const volumeIdx = getIndex(['Shares', 'Volume', 'Qty'])
+          const priceIdx = getIndex(['Price', 'Exec Price'])
+          const pnlIdx = getIndex(['P&L', 'Net P&L', 'Profit'])
+
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+            if (cols.length >= 4) {
+              newTradesToInsert.push({
+                user_id: user.id,
+                date: cols[dateIdx >= 0 ? dateIdx : 0] || new Date().toISOString().split('T')[0],
+                ticker: cols[symbolIdx >= 0 ? symbolIdx : 1] || 'UNKNOWN',
+                action: cols[sideIdx >= 0 ? sideIdx : 2] || 'BUY',
+                shares: parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 3]) || 100,
+                price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 4]) || 10,
+                pnl: parseFloat(cols[pnlIdx >= 0 ? pnlIdx : 5]) || 0,
+                r_multiple: 0,
                 trader: user.email?.split('@')[0] || 'Trader'
               })
             }
           }
         } else {
+          // Parser Sage Pro / Sterling
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-            if (cols.length >= 5) {
+            if (cols.length >= 4) {
               newTradesToInsert.push({
                 user_id: user.id,
                 date: cols[0] || new Date().toISOString().split('T')[0],
@@ -144,7 +175,7 @@ export default function TradingJournal() {
                 shares: parseFloat(cols[3]) || 100,
                 price: parseFloat(cols[4]) || 10,
                 pnl: parseFloat(cols[5]) || 0,
-                rMultiple: parseFloat(cols[6]) || 0,
+                r_multiple: 0,
                 trader: user.email?.split('@')[0] || 'Trader'
               })
             }
@@ -154,7 +185,11 @@ export default function TradingJournal() {
         if (newTradesToInsert.length > 0) {
           const { data, error } = await supabase.from('trades').insert(newTradesToInsert).select()
           if (!error && data) {
-            setTrades(prev => [...data, ...prev])
+            const mappedNew = data.map((t: any) => ({
+              ...t,
+              rMultiple: t.r_multiple ?? 0
+            }))
+            setTrades(prev => [...mappedNew, ...prev])
             setImportStatus({
               type: 'success',
               message: `¡Éxito! Se han importado correctamente ${data.length} operaciones.`
@@ -190,7 +225,6 @@ export default function TradingJournal() {
     return map
   }, [trades])
 
-  // Métricas reales
   const totalPnl = useMemo(() => trades.reduce((acc, t) => acc + t.pnl, 0), [trades])
   const totalR = useMemo(() => trades.reduce((acc, t) => acc + t.rMultiple, 0), [trades])
   const winCount = useMemo(() => trades.filter(t => t.pnl > 0).length, [trades])
