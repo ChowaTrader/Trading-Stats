@@ -123,7 +123,7 @@ export default function TradingJournal() {
                 user_id: user.id,
                 date: formattedDate,
                 ticker: cols[symbolIdx >= 0 ? symbolIdx : 2] || 'UNKNOWN',
-                action: cols[sideIdx >= 0 ? sideIdx : 3] || 'BUY',
+                action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
                 shares: parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4]) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 10,
                 pnl: parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
