@@ -1,8 +1,8 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'ChowaTrader Community',
-  description: 'DAS Trader Pro Journal & Analytics',
+  title: 'Track Your Edge',
+  description: 'Small Caps Journal & Analytics',
 }
 
 export default function RootLayout({
