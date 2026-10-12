@@ -37,10 +37,10 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2 mb-2">
             <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-            <h2 className="text-xl font-bold text-white tracking-tight">ChowaTrader Journal</h2>
+            <h2 className="text-xl font-bold text-white tracking-tight">Track Your Edge</h2>
           </div>
           <p className="text-xs text-slate-400">
-            {isSignUp ? 'Crea tu cuenta privada de trader' : 'Accede a tu diario de trading seguro'}
+            {isSignUp ? 'Crea tu cuenta de forma segura' : 'Accede a tu cuenta de forma segura'}
           </p>
         </div>
 
