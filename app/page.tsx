@@ -79,7 +79,6 @@ export default function TradingJournal() {
     setTrades([])
   }
 
-  // Parser robusto con filtrado estricto de nulos
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !user) return
@@ -101,7 +100,6 @@ export default function TradingJournal() {
         const getIdx = (names: string[]) => headers.findIndex(h => names.some(n => h.toLowerCase() === n.toLowerCase()))
 
         if (selectedPlatform === 'tradervue') {
-          // 1. TRADERVUE (Open Datetime, Symbol, Side, Volume, Entry Price, Net P&L, P&L (R))
           const dateIdx = getIdx(['Open Datetime', 'Date'])
           const symbolIdx = getIdx(['Symbol', 'Ticker'])
           const sideIdx = getIdx(['Side', 'Action'])
@@ -111,34 +109,32 @@ export default function TradingJournal() {
           const rIdx = getIdx(['P&L (R)', 'rMultiple'])
 
           for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(',')
-            const clean = cols.map(c => c.trim().replace(/^"|"$/g, ''))
+            const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
 
-            if (clean.length >= 5) {
-              const ticker = clean[symbolIdx >= 0 ? symbolIdx : 2]?.trim()
+            if (cols.length >= 5) {
+              const ticker = cols[symbolIdx >= 0 ? symbolIdx : 2]?.trim()
               if (!ticker || ticker === 'Symbol' || ticker === 'UNKNOWN') continue
 
-              const rawDate = clean[dateIdx >= 0 ? dateIdx : 0] || ''
+              const rawDate = cols[dateIdx >= 0 ? dateIdx : 0] || ''
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
 
-              const rawR = clean[rIdx >= 0 ? rIdx : 18] || '0'
+              const rawR = cols[rIdx >= 0 ? rIdx : 18] || '0'
               const parsedR = parseFloat(rawR.replace('R', '')) || 0
 
               newTradesToInsert.push({
                 user_id: user.id,
                 date: formattedDate,
                 ticker: ticker,
-                action: clean[sideIdx >= 0 ? sideIdx : 3] || 'L',
-                shares: Math.abs(parseFloat(clean[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
-                price: parseFloat(clean[priceIdx >= 0 ? priceIdx : 6]) || 0,
-                pnl: parseFloat(clean[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
+                action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
+                shares: Math.abs(parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
+                price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
+                pnl: parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
                 r_multiple: parsedR,
                 trader: user.email?.split('@')[0] || 'Trader'
               })
             }
           }
         } else if (selectedPlatform === 'das') {
-          // 2. DAS TRADER PRO (Symbol, Side, Type, Price, Qty, Time, Route, P / L, P/L R)
           let fileDate = new Date().toISOString().split('T')[0]
           const fileNameMatch = file.name.match(/(\d{2})(\d{2})(\d{4})/)
           if (fileNameMatch) {
@@ -175,7 +171,6 @@ export default function TradingJournal() {
             }
           }
         } else if (selectedPlatform === 'sage') {
-          // 3. SAGE PRO / STERLING (Transactions.csv)
           const dateIdx = getIdx(['Trade Date', 'Date'])
           const symbolIdx = getIdx(['Symbol', 'Ticker'])
           const sideIdx = getIdx(['Side', 'Action'])
@@ -187,7 +182,6 @@ export default function TradingJournal() {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
             if (cols.length >= 8) {
               const ticker = cols[symbolIdx >= 0 ? symbolIdx : 7]?.trim()
-              // Ignorar filas de gastos administrativos, cargos DAS o ACH que no tienen Symbol
               if (!ticker || ticker === 'Symbol' || ticker === 'NaN') continue
 
               newTradesToInsert.push({
@@ -215,119 +209,4 @@ export default function TradingJournal() {
             setTrades(prev => [...mappedNew, ...prev])
             setImportStatus({
               type: 'success',
-              message: `¡Éxito! Se han importado correctamente ${data.length} operaciones.`
-            })
-          } else {
-            throw new Error(error?.message || "Error al insertar en la base de datos.")
-          }
-        } else {
-          throw new Error("No se detectaron ejecuciones de trading válidas en el archivo.")
-        }
-      } catch (err: any) {
-        setImportStatus({
-          type: 'error',
-          message: err?.message || 'Ocurrió un error al procesar el archivo.'
-        })
-      } finally {
-        setIsUploading(false)
-        if (e.target) e.target.value = ''
-      }
-    }
-    reader.readAsText(file)
-  }
-
-  const monthsNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-
-  const tradesByDate = useMemo(() => {
-    const map: { [key: string]: { pnl: number; count: number } } = {}
-    trades.forEach(t => {
-      if (!map[t.date]) map[t.date] = { pnl: 0, count: 0 }
-      map[t.date].pnl += t.pnl
-      map[t.date].count += 1
-    })
-    return map
-  }, [trades])
-
-  const totalPnl = useMemo(() => trades.reduce((acc, t) => acc + t.pnl, 0), [trades])
-  const totalR = useMemo(() => trades.reduce((acc, t) => acc + t.rMultiple, 0), [trades])
-  const winCount = useMemo(() => trades.filter(t => t.pnl > 0).length, [trades])
-  const winRate = useMemo(() => trades.length > 0 ? ((winCount / trades.length) * 100).toFixed(1) : '0.0', [trades, winCount])
-  const profitFactor = useMemo(() => {
-    const wins = trades.filter(t => t.pnl > 0).reduce((acc, t) => acc + t.pnl, 0)
-    const losses = Math.abs(trades.filter(t => t.pnl < 0).reduce((acc, t) => acc + t.pnl, 0))
-    if (losses === 0) return wins > 0 ? 'Infinite' : '0.00'
-    return (wins / losses).toFixed(2)
-  }, [trades])
-
-  const calendarWeeks = useMemo(() => {
-    const firstDay = new Date(selectedYear, selectedMonth, 1)
-    const lastDay = new Date(selectedYear, selectedMonth + 1, 0)
-    
-    let currentDay = new Date(firstDay)
-    currentDay.setDate(currentDay.getDate() - currentDay.getDay())
-
-    const weeks = []
-    while (currentDay <= lastDay || weeks.length < 5) {
-      const weekDays = []
-      let weekPnl = 0
-      let weekTradesCount = 0
-
-      for (let i = 0; i < 7; i++) {
-        const dateStr = currentDay.toISOString().split('T')[0]
-        const isCurrentMonth = currentDay.getMonth() === selectedMonth
-        const dayNum = currentDay.getDate()
-        const data = tradesByDate[dateStr]
-
-        if (isCurrentMonth && data) {
-          weekPnl += data.pnl
-          weekTradesCount += data.count
-        }
-
-        weekDays.push({
-          dateStr,
-          dayNum,
-          isCurrentMonth,
-          data: isCurrentMonth ? data : null
-        })
-
-        currentDay.setDate(currentDay.getDate() + 1)
-      }
-
-      weeks.push({
-        weekNum: weeks.length + 1,
-        days: weekDays,
-        weekPnl,
-        weekTradesCount
-      })
-
-      if (weeks.length >= 6 && currentDay > lastDay) break
-    }
-    return weeks
-  }, [selectedYear, selectedMonth, tradesByDate])
-
-  const monthlyPnl = useMemo(() => {
-    return calendarWeeks.reduce((acc, w) => acc + w.weekPnl, 0)
-  }, [calendarWeeks])
-
-  if (checkingAuth) {
-    return (
-      <div className="min-h-screen bg-[#0b0e14] flex items-center justify-center text-slate-400 text-sm">
-        Verificando sesión...
-      </div>
-    )
-  }
-
-  if (!user) {
-    return <AuthModal onSuccess={() => setCheckingAuth(true)} />
-  }
-
-  return (
-    <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
-      {/* Navbar Superior */}
-      <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-6">
-          <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-            Track Your Edge <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
-          </h1>
-          <nav className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-
+              message: `¡É
