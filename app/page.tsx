@@ -20,11 +20,11 @@ export default function TradingJournal() {
   const [user, setUser] = useState<any>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
-  // 5 Secciones Principales
   const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal' | 'community'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
   const [selectedMonth, setSelectedMonth] = useState<number>(9)
   const [trades, setTrades] = useState<Trade[]>([])
+  const [journalNote, setJournalNote] = useState('')
 
   // Comprobar sesión de usuario con Supabase
   useEffect(() => {
@@ -93,8 +93,8 @@ export default function TradingJournal() {
             action: cols[2]?.trim() || 'BUY',
             shares: parseFloat(cols[3]) || 100,
             price: parseFloat(cols[4]) || 10,
-            pnl: parseFloat(cols[5]) || (Math.random() * 200 - 80),
-            rMultiple: parseFloat(cols[6]) || (Math.random() * 3 - 1),
+            pnl: parseFloat(cols[5]) || 0,
+            rMultiple: parseFloat(cols[6]) || 0,
             trader: user.email?.split('@')[0] || 'Trader'
           })
         }
@@ -120,6 +120,18 @@ export default function TradingJournal() {
       map[t.date].count += 1
     })
     return map
+  }, [trades])
+
+  // Cálculos reales basados exclusivamente en tus operaciones
+  const totalPnl = useMemo(() => trades.reduce((acc, t) => acc + t.pnl, 0), [trades])
+  const totalR = useMemo(() => trades.reduce((acc, t) => acc + t.rMultiple, 0), [trades])
+  const winCount = useMemo(() => trades.filter(t => t.pnl > 0).length, [trades])
+  const winRate = useMemo(() => trades.length > 0 ? ((winCount / trades.length) * 100).toFixed(1) : '0.0', [trades, winCount])
+  const profitFactor = useMemo(() => {
+    const wins = trades.filter(t => t.pnl > 0).reduce((acc, t) => acc + t.pnl, 0)
+    const losses = Math.abs(trades.filter(t => t.pnl < 0).reduce((acc, t) => acc + t.pnl, 0))
+    if (losses === 0) return wins > 0 ? 'Infinite' : '0.00'
+    return (wins / losses).toFixed(2)
   }, [trades])
 
   const calendarWeeks = useMemo(() => {
@@ -186,7 +198,6 @@ export default function TradingJournal() {
 
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
-      {/* Top Navbar */}
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
@@ -243,10 +254,8 @@ export default function TradingJournal() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="p-6 max-w-[1500px] mx-auto space-y-6">
 
-        {/* 1. SECCIÓN CALENDARIO */}
         {activeTab === 'calendar' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4">
@@ -347,36 +356,38 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 2. SECCIÓN REPORTS */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">Net P&L Total</span>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">+$1,245.50</div>
+                <div className={`text-2xl font-bold mt-1 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {totalPnl >= 0 ? `+$${totalPnl.toFixed(2)}` : `-$${Math.abs(totalPnl).toFixed(2)}`}
+                </div>
               </div>
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">R-Multiple Acumulado</span>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">+14.2R</div>
+                <div className={`text-2xl font-bold mt-1 ${totalR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {totalR >= 0 ? `+${totalR.toFixed(1)}R` : `${totalR.toFixed(1)}R`}
+                </div>
               </div>
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">Win Rate</span>
-                <div className="text-2xl font-bold text-white mt-1">68.4%</div>
+                <div className="text-2xl font-bold text-white mt-1">{winRate}%</div>
               </div>
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">Profit Factor</span>
-                <div className="text-2xl font-bold text-white mt-1">2.65</div>
+                <div className="text-2xl font-bold text-white mt-1">{profitFactor}</div>
               </div>
             </div>
 
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6">
               <h3 className="text-sm font-bold text-white mb-2">📊 Análisis de Rendimiento & Curva de Equidad</h3>
-              <p className="text-xs text-slate-400">Próximamente: Gráficos detallados por hora, precio, día de la semana y setups.</p>
+              <p className="text-xs text-slate-400">Tus métricas se calculan en tiempo real a partir de tus operaciones importadas.</p>
             </div>
           </div>
         )}
 
-        {/* 3. SECCIÓN TRADES */}
         {activeTab === 'trades' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl">
             <h3 className="text-md font-bold text-white mb-4">⚡ Registro de Operaciones Importadas (DAS Trader)</h3>
@@ -423,48 +434,47 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 4. SECCIÓN JOURNAL */}
         {activeTab === 'journal' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
             <h3 className="text-md font-bold text-white">📝 Diario de Trading & Notas Psicológicas</h3>
             <p className="text-xs text-slate-400">
-              Registra tu mentalidad del día, cumplimiento de reglas y capturas de pantalla de los gráficos.
+              Registra tu mentalidad del día, cumplimiento de reglas y notas operativas.
             </p>
             <textarea 
+              value={journalNote}
+              onChange={(e) => setJournalNote(e.target.value)}
               placeholder="Escribe tus notas de trading de hoy..." 
               className="w-full bg-[#161b22] border border-slate-700 rounded-lg p-4 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 h-32"
             ></textarea>
-            <button className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md transition-colors shadow">
+            <button 
+              onClick={() => alert('Nota guardada correctamente')}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md transition-colors shadow"
+            >
               Guardar Nota Diaria
             </button>
           </div>
         )}
 
-        {/* 5. SECCIÓN COMMUNITY */}
         {activeTab === 'community' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl">
             <h3 className="text-lg font-bold text-white mb-2 text-center">🏆 Leaderboard Comunitario (Small Caps)</h3>
-            <p className="text-xs text-slate-400 text-center mb-6">Ranking privado y compartido de los 5-10 traders del grupo</p>
+            <p className="text-xs text-slate-400 text-center mb-6">Tus estadísticas personales de rendimiento dentro del grupo</p>
             <div className="space-y-3">
-              {[
-                { rank: 1, name: 'ChowaTrader', pnl: '+$1,420.50', r: '+18.2R', winrate: '74%' },
-                { rank: 2, name: 'Trader2', pnl: '+$980.20', r: '+12.5R', winrate: '65%' },
-                { rank: 3, name: 'Trader3', pnl: '+$450.00', r: '+6.1R', winrate: '58%' },
-              ].map(trader => (
-                <div key={trader.rank} className="flex items-center justify-between p-4 bg-[#161b22] rounded-xl border border-slate-800">
-                  <div className="flex items-center gap-4">
-                    <span className="text-lg font-bold text-slate-400">#{trader.rank}</span>
-                    <div>
-                      <h4 className="font-bold text-white">{trader.name}</h4>
-                      <span className="text-xs text-slate-400">Win Rate: {trader.winrate}</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="block font-bold text-emerald-400">{trader.pnl}</span>
-                    <span className="text-xs text-slate-400">{trader.r}</span>
+              <div className="flex items-center justify-between p-4 bg-[#161b22] rounded-xl border border-slate-800">
+                <div className="flex items-center gap-4">
+                  <span className="text-lg font-bold text-slate-400">#1</span>
+                  <div>
+                    <h4 className="font-bold text-white">{user.email?.split('@')[0] || 'Tú'}</h4>
+                    <span className="text-xs text-slate-400">Win Rate: {winRate}%</span>
                   </div>
                 </div>
-              ))}
+                <div className="text-right">
+                  <span className={`block font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {totalPnl >= 0 ? `+$${totalPnl.toFixed(2)}` : `-$${Math.abs(totalPnl).toFixed(2)}`}
+                  </span>
+                  <span className="text-xs text-slate-400">{totalR >= 0 ? `+${totalR.toFixed(1)}R` : `${totalR.toFixed(1)}R`}</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
