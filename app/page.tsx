@@ -27,7 +27,6 @@ export default function TradingJournal() {
   const [selectedYear, setSelectedYear] = useState<number>(2026)
   const [selectedMonth, setSelectedMonth] = useState<number>(9) // 0-indexed (9 = Octubre)
   
-  // Nuevos estados para la vista en $ o R y riesgo diario
   const [displayMode, setDisplayMode] = useState<DisplayMode>('currency')
   const [dailyRisk, setDailyRisk] = useState<number>(100) // $100 = 1R por defecto
 
@@ -269,7 +268,6 @@ export default function TradingJournal() {
     return map
   }, [trades, dailyRisk])
 
-  // P&L acumulados por cada mes para los botones pequeños
   const monthlySummaries = useMemo(() => {
     return Array.from({ length: 12 }, (_, monthIdx) => {
       let pnlAcc = 0
@@ -361,14 +359,14 @@ export default function TradingJournal() {
     return calendarWeeks.reduce((acc, w) => acc + w.weekR, 0)
   }, [calendarWeeks])
 
-  // Función helper para formatear valores según el modo de visualización ($ o R)
+  // Formateador con 2 decimales exactos para R (ej. +0.07R, -0.20R, +0.31R)
   const formatVal = (pnlAmount: number, rAmount: number, includeSign = true) => {
     if (displayMode === 'currency') {
       const prefix = includeSign ? (pnlAmount >= 0 ? '+$' : '-$') : '$'
       return `${prefix}${Math.abs(pnlAmount).toFixed(2)}`
     } else {
       const prefix = includeSign ? (rAmount >= 0 ? '+' : '') : ''
-      return `${prefix}${rAmount.toFixed(1)}R`
+      return `${prefix}${rAmount.toFixed(2)}R`
     }
   }
 
@@ -458,7 +456,6 @@ export default function TradingJournal() {
             {/* Barra superior del calendario: Año + Toggle $ / R + Riesgo diario */}
             <div className="flex flex-col md:flex-row items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4 gap-4 shadow-md">
               
-              {/* Selección de Año y Meses en Grande */}
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-400 uppercase font-semibold">Año:</span>
                 <select 
@@ -472,7 +469,6 @@ export default function TradingJournal() {
                 </select>
               </div>
 
-              {/* Toggles $ / R & Daily Risk */}
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 bg-[#161b22] p-1 rounded-lg border border-slate-800">
                   <button 
@@ -510,7 +506,6 @@ export default function TradingJournal() {
                 )}
               </div>
 
-              {/* Total acumulado del mes seleccionado */}
               <div className="text-right">
                 <span className="text-xs text-slate-400 mr-2">Net {monthsFullNames[selectedMonth]}:</span>
                 <span className={`text-base font-bold ${monthlyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -563,7 +558,6 @@ export default function TradingJournal() {
                 </div>
               </div>
 
-              {/* Cabecera de días de la semana */}
               <div className="grid grid-cols-8 gap-2">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((d, i) => (
                   <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">
@@ -572,7 +566,6 @@ export default function TradingJournal() {
                 ))}
               </div>
 
-              {/* Matriz del Calendario */}
               <div className="space-y-2">
                 {calendarWeeks.map((week, wIdx) => (
                   <div key={wIdx} className="grid grid-cols-8 gap-2">
@@ -611,7 +604,6 @@ export default function TradingJournal() {
                       </div>
                     ))}
 
-                    {/* Resumen semanal */}
                     <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
                       <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
                       <div>
@@ -641,7 +633,7 @@ export default function TradingJournal() {
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">R-Multiple Acumulado</span>
                 <div className={`text-2xl font-bold mt-1 ${totalR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {totalR >= 0 ? `+${totalR.toFixed(1)}R` : `${totalR.toFixed(1)}R`}
+                  {totalR >= 0 ? `+${totalR.toFixed(2)}R` : `${totalR.toFixed(2)}R`}
                 </div>
               </div>
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
@@ -691,7 +683,7 @@ export default function TradingJournal() {
                           ${t.pnl.toFixed(2)}
                         </td>
                         <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {t.rMultiple.toFixed(1)}R
+                          {t.rMultiple >= 0 ? `+${t.rMultiple.toFixed(2)}R` : `${t.rMultiple.toFixed(2)}R`}
                         </td>
                       </tr>
                     ))
@@ -748,7 +740,7 @@ export default function TradingJournal() {
                   <span className={`block font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {formatVal(totalPnl, totalR)}
                   </span>
-                  <span className="text-xs text-slate-400">{totalR >= 0 ? `+${totalR.toFixed(1)}R` : `${totalR.toFixed(1)}R`}</span>
+                  <span className="text-xs text-slate-400">{totalR >= 0 ? `+${totalR.toFixed(2)}R` : `${totalR.toFixed(2)}R`}</span>
                 </div>
               </div>
             </div>
