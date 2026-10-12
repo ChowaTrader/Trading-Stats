@@ -1,4 +1,3 @@
-'default'
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
@@ -9,7 +8,7 @@ interface Trade {
   id: string
   date: string
   ticker: string
-  action: string // 'L', 'S', 'B', 'SS'
+  action: string
   shares: number
   price: number
   pnl: number
@@ -37,17 +36,14 @@ export default function TradingJournal() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [journalNote, setJournalNote] = useState('')
 
-  // NUEVOS ESTADOS: Etiquetas, Filtros y Selección Masiva
   const [availableTags, setAvailableTags] = useState<string[]>(['Breakout', 'DipBuy', 'Momentum', 'Reversal', 'A+ Setup'])
   const [newTagInput, setNewTagInput] = useState('')
   const [selectedTradeIds, setSelectedTradeIds] = useState<string[]>([])
   
-  // Filtros de Trades
   const [filterTicker, setFilterTicker] = useState('')
   const [filterTag, setFilterTag] = useState('ALL')
   const [filterSide, setFilterSide] = useState('ALL')
 
-  // Modales interactivos
   const [dayTradesModalDate, setDayTradesModalDate] = useState<string | null>(null)
   const [activeChartTrade, setActiveChartTrade] = useState<Trade | null>(null)
 
@@ -99,7 +95,6 @@ export default function TradingJournal() {
         }))
         setTrades(mapped)
 
-        // Extraer tags únicas detectadas
         const uniqueTags = Array.from(new Set(mapped.map((t: any) => t.tag).filter(Boolean)))
         if (uniqueTags.length > 0) {
           setAvailableTags(prev => Array.from(new Set([...prev, ...uniqueTags])))
@@ -116,7 +111,6 @@ export default function TradingJournal() {
     setTrades([])
   }
 
-  // Importador CSV robusto con lectura de Tags de Tradervue
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -183,7 +177,6 @@ export default function TradingJournal() {
             }
           }
         } else {
-          // DAS & SAGE parsers básicos
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
             if (cols.length >= 5) {
@@ -242,7 +235,6 @@ export default function TradingJournal() {
     reader.readAsText(file)
   }
 
-  // Actualización masiva de Trades (Etiqueta o Riesgo)
   const handleBatchUpdate = async (updateData: { tag?: string; initialRisk?: number }) => {
     if (selectedTradeIds.length === 0) return
 
@@ -258,7 +250,6 @@ export default function TradingJournal() {
 
     setTrades(updatedTrades)
 
-    // Sincronizar con Supabase
     for (const id of selectedTradeIds) {
       const target = updatedTrades.find(t => t.id === id)
       if (target) {
@@ -274,7 +265,6 @@ export default function TradingJournal() {
     alert('¡Actualización masiva realizada correctamente!')
   }
 
-  // Filtrado avanzado de trades
   const filteredTrades = useMemo(() => {
     return trades.filter(t => {
       const matchTicker = filterTicker === '' || t.ticker.toLowerCase().includes(filterTicker.toLowerCase())
@@ -481,7 +471,7 @@ export default function TradingJournal() {
               })}
             </div>
 
-            {/* Cuadrícula del Calendario (Click en día abre modal) */}
+            {/* Cuadrícula del Calendario */}
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
               <h2 className="text-lg font-bold text-white flex items-center gap-2"><span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}</h2>
 
@@ -540,4 +530,297 @@ export default function TradingJournal() {
               </div>
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">Win Rate</span>
-                <div className="
+                <div className="text-2xl font-bold text-white mt-1">{winRate}%</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Profit Factor</span>
+                <div className="text-2xl font-bold text-white mt-1">{profitFactor}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. TRADES */}
+        {activeTab === 'trades' && (
+          <div className="space-y-6">
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col md:flex-row gap-4 justify-between items-center">
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <input 
+                  type="text" 
+                  placeholder="Nueva etiqueta..." 
+                  value={newTagInput} 
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg focus:outline-none"
+                />
+                <button 
+                  onClick={() => {
+                    if (newTagInput.trim() && !availableTags.includes(newTagInput.trim())) {
+                      setAvailableTags([...availableTags, newTagInput.trim()])
+                      setNewTagInput('')
+                    }
+                  }} 
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg"
+                >
+                  ➕ Crear Tag
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto">
+                <input 
+                  type="text" 
+                  placeholder="Filtrar Ticker..." 
+                  value={filterTicker} 
+                  onChange={(e) => setFilterTicker(e.target.value)}
+                  className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg focus:outline-none w-32"
+                />
+                <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg">
+                  <option value="ALL">Todas las Etiquetas</option>
+                  {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select value={filterSide} onChange={(e) => setFilterSide(e.target.value)} className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg">
+                  <option value="ALL">Lados (Todos)</option>
+                  <option value="LONG">Long</option>
+                  <option value="SHORT">Short</option>
+                </select>
+              </div>
+            </div>
+
+            {selectedTradeIds.length > 0 && (
+              <div className="bg-emerald-950/60 border border-emerald-800 rounded-xl p-4 flex items-center justify-between shadow-lg">
+                <span className="text-xs text-emerald-300 font-bold">{selectedTradeIds.length} trades seleccionados</span>
+                <div className="flex items-center gap-3">
+                  <select 
+                    onChange={(e) => e.target.value && handleBatchUpdate({ tag: e.target.value })} 
+                    className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-1.5 rounded-lg"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Asignar etiqueta masiva...</option>
+                    {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <button 
+                    onClick={() => {
+                      const val = prompt("Nuevo riesgo inicial (1R $):", String(dailyRisk))
+                      if (val && !isNaN(Number(val))) handleBatchUpdate({ initialRisk: Number(val) })
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
+                  >
+                    Establecer Riesgo 1R
+                  </button>
+                  <button onClick={() => setSelectedTradeIds([])} className="text-xs text-slate-400 hover:text-white">Deseleccionar</button>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-[#161b22] text-slate-400 uppercase">
+                    <tr>
+                      <th className="p-3">
+                        <input 
+                          type="checkbox" 
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedTradeIds(filteredTrades.map(t => t.id))
+                            else setSelectedTradeIds([])
+                          }} 
+                          checked={selectedTradeIds.length === filteredTrades.length && filteredTrades.length > 0}
+                        />
+                      </th>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Ticker</th>
+                      <th className="p-3">Acción</th>
+                      <th className="p-3">Shares</th>
+                      <th className="p-3">Precio</th>
+                      <th className="p-3">Etiqueta (Tag)</th>
+                      <th className="p-3">P&L ($)</th>
+                      <th className="p-3">R-Multiple</th>
+                      <th className="p-3 text-center">Gráfico 📈</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {filteredTrades.length > 0 ? (
+                      filteredTrades.map(t => (
+                        <tr key={t.id} className="hover:bg-[#161b22]/50">
+                          <td className="p-3">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedTradeIds.includes(t.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedTradeIds([...selectedTradeIds, t.id])
+                                else setSelectedTradeIds(selectedTradeIds.filter(id => id !== t.id))
+                              }}
+                            />
+                          </td>
+                          <td className="p-3">{t.date}</td>
+                          <td className="p-3 font-bold text-white">{t.ticker}</td>
+                          <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.action.includes('L') || t.action === 'B' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}>{t.action}</span></td>
+                          <td className="p-3">{t.shares}</td>
+                          <td className="p-3">${t.price}</td>
+                          <td className="p-3">
+                            <select 
+                              value={t.tag || 'General'} 
+                              onChange={async (e) => {
+                                const newTag = e.target.value
+                                setTrades(trades.map(item => item.id === t.id ? { ...item, tag: newTag } : item))
+                                await supabase.from('trades').update({ tag: newTag }).eq('id', t.id)
+                              }}
+                              className="bg-[#161b22] border border-slate-700 text-xs text-white rounded px-2 py-1"
+                            >
+                              {availableTags.map(tagOpt => <option key={tagOpt} value={tagOpt}>{tagOpt}</option>)}
+                            </select>
+                          </td>
+                          <td className={`p-3 font-semibold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${t.pnl.toFixed(2)}</td>
+                          <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{t.rMultiple >= 0 ? `+${t.rMultiple.toFixed(2)}R` : `${t.rMultiple.toFixed(2)}R`}</td>
+                          <td className="p-3 text-center">
+                            <button onClick={() => setActiveChartTrade(t)} className="bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded text-xs text-emerald-400 font-semibold shadow">Ver Gráfico</button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-500">No hay operaciones que coincidan con los filtros.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. JOURNAL */}
+        {activeTab === 'journal' && (
+          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
+            <h3 className="text-md font-bold text-white">📝 Diario de Trading & Notas Psicológicas</h3>
+            <textarea value={journalNote} onChange={(e) => setJournalNote(e.target.value)} placeholder="Escribe tus notas..." className="w-full bg-[#161b22] border border-slate-700 rounded-lg p-4 text-xs text-slate-200 h-32 focus:outline-none"></textarea>
+            <button onClick={() => alert('Nota guardada')} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md">Guardar Nota</button>
+          </div>
+        )}
+
+        {/* 5. COMMUNITY */}
+        {activeTab === 'community' && (
+          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl text-center">
+            <h3 className="text-lg font-bold text-white mb-2">🏆 Leaderboard Comunitario</h3>
+            <p className="text-xs text-slate-400">Win Rate: {winRate}% | P&L: ${totalPnl.toFixed(2)}</p>
+          </div>
+        )}
+
+      </main>
+
+      {/* MODAL 1: Trades del Día */}
+      {dayTradesModalDate && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl relative space-y-4 max-h-[85vh] overflow-y-auto">
+            <button onClick={() => setDayTradesModalDate(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white text-sm">✕</button>
+            <h3 className="text-lg font-bold text-white">Operaciones del día: {dayTradesModalDate}</h3>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-[#161b22] text-slate-400 uppercase">
+                  <tr>
+                    <th className="p-3">Ticker</th>
+                    <th className="p-3">Acción</th>
+                    <th className="p-3">Shares</th>
+                    <th className="p-3">Precio</th>
+                    <th className="p-3">Tag</th>
+                    <th className="p-3">P&L ($)</th>
+                    <th className="p-3 text-center">Gráfico</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {tradesByDate[dayTradesModalDate]?.trades.map(t => (
+                    <tr key={t.id} className="hover:bg-[#161b22]/50">
+                      <td className="p-3 font-bold text-white">{t.ticker}</td>
+                      <td className="p-3">{t.action}</td>
+                      <td className="p-3">{t.shares}</td>
+                      <td className="p-3">${t.price}</td>
+                      <td className="p-3">{t.tag}</td>
+                      <td className={`p-3 font-semibold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${t.pnl.toFixed(2)}</td>
+                      <td className="p-3 text-center">
+                        <button onClick={() => { setActiveChartTrade(t); setDayTradesModalDate(null); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded text-xs">Ver Gráfico 📊</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Visor Gráfico */}
+      {activeChartTrade && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-3xl w-full shadow-2xl relative space-y-5">
+            <button onClick={() => setActiveChartTrade(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white text-sm">✕</button>
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-white">Gráfico de Ejecución: {activeChartTrade.ticker}</h3>
+                <span className="text-xs text-slate-400">Fecha: {activeChartTrade.date} | Tag: <strong className="text-emerald-400">{activeChartTrade.tag}</strong></span>
+              </div>
+              <div className="text-right">
+                <span className={`text-base font-bold ${activeChartTrade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${activeChartTrade.pnl.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="bg-[#0b0e14] border border-slate-800 rounded-xl p-6 h-72 relative flex flex-col justify-between overflow-hidden">
+              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:16px_16px]"></div>
+              
+              <div className="flex justify-between text-[11px] text-slate-500 z-10">
+                <span>Precio: ${activeChartTrade.price}</span>
+                <span>P&L: {activeChartTrade.rMultiple.toFixed(2)}R</span>
+              </div>
+
+              <div className="relative w-full h-36 flex items-center justify-center z-10">
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 500 150">
+                  <path d="M 20 120 Q 100 40 200 90 T 380 50 L 480 80" fill="none" stroke="#334155" strokeWidth="2" strokeDasharray="4 4" />
+                  <path d="M 20 120 Q 100 40 200 90 T 380 50 L 480 80" fill="none" stroke="#38bdf8" strokeWidth="2" />
+                  
+                  <polygon points="190,105 200,90 210,105" fill={activeChartTrade.action.includes('L') || activeChartTrade.action === 'B' ? '#10b981' : '#f43f5e'} />
+                  <text x="185" y="125" fill="#94a3b8" fontSize="10">Entrada</text>
+
+                  <polygon points="370,35 380,50 390,35" fill={activeChartTrade.pnl >= 0 ? '#10b981' : '#f43f5e'} />
+                  <text x="365" y="25" fill="#94a3b8" fontSize="10">Salida</text>
+                </svg>
+              </div>
+
+              <div className="flex justify-between items-center text-xs text-slate-400 z-10 border-t border-slate-800/80 pt-3">
+                <span>Shares: {activeChartTrade.shares}</span>
+                <span className="text-emerald-400 font-semibold">Triángulos: Verde (Entrada/Salida óptima) / Rojo (Stoploss/Pérdida)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Importación */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
+            <button onClick={() => setShowImportModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white text-sm">✕</button>
+            <h3 className="text-lg font-bold text-white mb-1">Importar Operaciones (CSV)</h3>
+            <p className="text-xs text-slate-400 mb-5">Selecciona tu plataforma</p>
+            <div className="space-y-3 mb-6">
+              {[
+                { id: 'tradervue', name: 'Tradervue', desc: 'Archivo trades.csv (importa tags automáticamente)' },
+                { id: 'das', name: 'DAS Trader Pro', desc: 'Exportación diaria CSV' },
+                { id: 'sage', name: 'Sage Pro (Sterling)', desc: 'Transactions.csv' },
+              ].map((p) => (
+                <div key={p.id} onClick={() => setSelectedPlatform(p.id as PlatformType)} className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer ${selectedPlatform === p.id ? 'bg-emerald-950/40 border-emerald-500 text-white' : 'bg-[#161b22] border-slate-800 text-slate-400'}`}>
+                  <input type="radio" checked={selectedPlatform === p.id} readOnly className="mt-1 accent-emerald-500" />
+                  <div>
+                    <div className="text-xs font-bold text-slate-200">{p.name}</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{p.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {importStatus && <div className={`p-3.5 rounded-lg text-xs mb-4 text-center border ${importStatus.type === 'success' ? 'bg-emerald-950/65 border-emerald-800 text-emerald-300' : 'bg-rose-950/65 border-rose-800 text-rose-300'}`}>{importStatus.message}</div>}
+            <label className={`block text-center bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg text-xs cursor-pointer ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+              {isUploading ? 'Procesando...' : 'Seleccionar archivo CSV'}
+              <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" disabled={isUploading} />
+            </label>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
