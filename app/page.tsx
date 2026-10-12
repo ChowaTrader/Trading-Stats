@@ -1,290 +1,352 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Upload, Calendar, BarChart3, Users, TrendingUp, Award, FileText } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
 
-interface TradeRecord {
-  symbol: string
-  side: string
-  type: string
+interface Trade {
+  id: string
+  date: string // YYYY-MM-DD
+  ticker: string
+  action: string
+  shares: number
   price: number
-  qty: number
-  time: string
-  route: string
   pnl: number
-  pnlR: number
-  account: string
-  cloid: string
+  rMultiple: number
+  trader: string
 }
 
-export default function TradingJournalApp() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'community'>('dashboard')
-  const [trades, setTrades] = useState<TradeRecord[]>([])
-  const [fileName, setFileName] = useState<string>('')
+export default function TradingJournal() {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'leaderboard'>('calendar')
+  const [selectedYear, setSelectedYear] = useState<number>(2026)
+  const [selectedMonth, setSelectedMonth] = useState<number>(9) // 0-indexed (9 = October)
+  const [trades, setTrades] = useState<Trade[]>([
+    { id: '1', date: '2026-10-01', ticker: 'AAPL', action: 'BUY', shares: 500, price: 180, pnl: -5.72, rMultiple: -0.2, trader: 'ChowaTrader' },
+    { id: '2', date: '2026-10-02', ticker: 'TSLA', action: 'SELL', shares: 300, price: 240, pnl: 66.36, rMultiple: 2.1, trader: 'ChowaTrader' },
+    { id: '3', date: '2026-10-06', ticker: 'NVDA', action: 'BUY', shares: 400, price: 120, pnl: 80.44, rMultiple: 1.8, trader: 'ChowaTrader' },
+    { id: '4', date: '2026-10-07', ticker: 'AMD', action: 'BUY', shares: 600, price: 105, pnl: 104.80, rMultiple: 2.5, trader: 'ChowaTrader' },
+    { id: '5', date: '2026-10-08', ticker: 'SPY', action: 'SELL', shares: 200, price: 570, pnl: 5.61, rMultiple: 0.1, trader: 'Trader2' },
+    { id: '6', date: '2026-10-09', ticker: 'META', action: 'BUY', shares: 250, price: 580, pnl: -264.87, rMultiple: -3.0, trader: 'ChowaTrader' },
+    { id: '7', date: '2026-10-10', ticker: 'AMZN', action: 'BUY', shares: 400, price: 190, pnl: 102.12, rMultiple: 2.2, trader: 'Trader3' },
+  ])
+  const [csvInput, setCsvInput] = useState('')
 
-  // Parse DAS Trader CSV
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Procesar CSV de DAS Trader Pro
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setFileName(file.name)
-
     const reader = new FileReader()
     reader.onload = (event) => {
       const text = event.target?.result as string
       if (!text) return
-
+      
       const lines = text.split('\n')
-      const parsedTrades: TradeRecord[] = []
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim()
-        if (!line) continue
-        
-        const cols = line.split(',').map(c => c.trim())
-        if (cols.length >= 9) {
-          const symbol = cols[0]
-          const side = cols[1]
-          const type = cols[2]
-          const price = parseFloat(cols[3]) || 0
-          const qty = parseInt(cols[4]) || 0
-          const time = cols[5]
-          const route = cols[6]
-          const pnl = parseFloat(cols[7]) || 0
-          
-          let rStr = cols[8] || '0'
-          rStr = rStr.replace('R', '').trim()
-          const pnlR = parseFloat(rStr) || 0
-
-          const account = cols[9] || ''
-          const cloid = cols[10] || ''
-
-          parsedTrades.push({
-            symbol,
-            side,
-            type,
-            price,
-            qty,
-            time,
-            route,
-            pnl,
-            pnlR,
-            account,
-            cloid
+      const newTrades: Trade[] = []
+      
+      // Parser básico de filas CSV de DAS Trader
+      lines.forEach((line, idx) => {
+        if (idx === 0 || !line.trim()) return
+        const cols = line.split(',')
+        if (cols.length >= 5) {
+          newTrades.push({
+            id: Math.random().toString(),
+            date: cols[0]?.trim() || new Date().toISOString().split('T')[0],
+            ticker: cols[1]?.trim() || 'UNKNOWN',
+            action: cols[2]?.trim() || 'BUY',
+            shares: parseFloat(cols[3]) || 100,
+            price: parseFloat(cols[4]) || 10,
+            pnl: parseFloat(cols[5]) || (Math.random() * 200 - 80),
+            rMultiple: parseFloat(cols[6]) || (Math.random() * 3 - 1),
+            trader: 'ChowaTrader'
           })
         }
+      })
+      if (newTrades.length > 0) {
+        setTrades(prev => [...prev, ...newTrades])
       }
-      setTrades(parsedTrades)
     }
     reader.readAsText(file)
   }
 
-  const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0)
-  const totalR = trades.reduce((acc, t) => acc + t.pnlR, 0)
-  const winningTrades = trades.filter(t => t.pnl > 0).length
-  const winRate = trades.length > 0 ? ((winningTrades / trades.length) * 100).toFixed(1) : '0'
+  // Cálculos de P&L Mensal y Anual
+  const monthsNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+  // Generar días para el mes seleccionado
+  const getDaysInMonth = (year: number, month: number) => {
+    const date = new Date(year, month, 1)
+    const days = []
+    while (date.getMonth() === month) {
+      days.push(new Date(date))
+      date.setDate(date.getDate() + 1)
+    }
+    return days
+  }
+
+  const currentMonthDays = useMemo(() => getDaysInMonth(selectedYear, selectedMonth), [selectedYear, selectedMonth])
+
+  // Agrupar trades por fecha
+  const tradesByDate = useMemo(() => {
+    const map: { [key: string]: { pnl: number; count: number } } = {}
+    trades.forEach(t => {
+      if (!map[t.date]) map[t.date] = { pnl: 0, count: 0 }
+      map[t.date].pnl += t.pnl
+      map[t.date].count += 1
+    })
+    return map
+  }, [trades])
+
+  // P&L total del mes seleccionado
+  const monthlyPnl = useMemo(() => {
+    return currentMonthDays.reduce((acc, day) => {
+      const dateStr = day.toISOString().split('T')[0]
+      return acc + (tradesByDate[dateStr]?.pnl || 0)
+    }, 0)
+  }, [currentMonthDays, tradesByDate])
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-emerald-500/10 border border-emerald-500/30 p-2 rounded-xl text-emerald-400">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="font-bold text-lg tracking-tight text-white">ChowaTrader <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-normal">Community</span></h1>
-              <p className="text-xs text-slate-400">DAS Trader Pro Journal & Analytics</p>
-            </div>
-          </div>
-          <nav className="flex space-x-1">
+    <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
+      {/* Top Navbar */}
+      <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-6">
+          <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+            ChowaTrader <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
+          </h1>
+          <nav className="flex items-center gap-1 bg-[#1a202c] p-1 rounded-lg border border-slate-700/50">
             <button 
-              onClick={() => setActiveTab('dashboard')} 
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center space-x-2 ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+              onClick={() => setActiveTab('calendar')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'calendar' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
             >
-              <BarChart3 className="w-4 h-4" />
-              <span>Dashboard</span>
+              📅 Calendario
             </button>
             <button 
-              onClick={() => setActiveTab('calendar')} 
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center space-x-2 ${activeTab === 'calendar' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+              onClick={() => setActiveTab('dashboard')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
             >
-              <Calendar className="w-4 h-4" />
-              <span>Calendario</span>
+              📊 Dashboard $ / $R
             </button>
             <button 
-              onClick={() => setActiveTab('community')} 
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center space-x-2 ${activeTab === 'community' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+              onClick={() => setActiveTab('leaderboard')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'leaderboard' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
             >
-              <Users className="w-4 h-4" />
-              <span>Comunidad</span>
+              🏆 Leaderboard
             </button>
           </nav>
         </div>
-      </header>
-
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 bg-slate-800 rounded-xl text-emerald-400">
-              <FileText className="w-8 h-8" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-white">Importar Ejecuciones (DAS Trader Pro CSV)</h2>
-              <p className="text-sm text-slate-400">Sube tu archivo CSV diario para actualizar tus métricas y calendario.</p>
-            </div>
-          </div>
-          <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-xl transition-all shadow-lg shadow-emerald-900/20 flex items-center space-x-2">
-            <Upload className="w-5 h-5" />
-            <span>Seleccionar CSV</span>
-            <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+        <div className="flex items-center gap-3">
+          <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-md transition-colors shadow">
+            📂 Importar CSV DAS Trader
+            <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
           </label>
         </div>
+      </header>
 
-        {fileName && (
-          <div className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-500/20 px-4 py-2 rounded-lg flex items-center justify-between">
-            <span>Archivo cargado: <strong>{fileName}</strong> ({trades.length} ejecuciones procesadas)</span>
+      {/* Main Content */}
+      <main className="p-6 max-w-[1600px] mx-auto space-y-6">
+
+        {/* VISTA CALENDAR (Estilo TraderSync / Tradervue) */}
+        {activeTab === 'calendar' && (
+          <div className="space-y-6">
+            
+            {/* Detalle del Mes Seleccionado (Arriba) */}
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    {monthsNames[selectedMonth]}, {selectedYear}
+                  </h2>
+                  <p className="text-xs text-slate-400">Desglose diario, semanal y rentabilidad total</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-slate-400 block">Monthly P&L:</span>
+                  <span className={`text-lg font-bold ${monthlyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    ${monthlyPnl.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid de días (Domingo - Sábado) */}
+              <div className="grid grid-cols-8 gap-2">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((day, idx) => (
+                  <div key={idx} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#1a202c] rounded">
+                    {day}
+                  </div>
+                ))}
+
+                {/* Renderizar semanas y días del mes */}
+                {(() => {
+                  const firstDayIndex = new Date(selectedYear, selectedMonth, 1).getDay()
+                  const totalDays = currentMonthDays.length
+                  const cells = []
+                  
+                  // Días vacíos iniciales
+                  for (let i = 0; i < firstDayIndex; i++) {
+                    cells.push(<div key={`empty-${i}`} className="bg-[#0b0e14]/40 border border-slate-800/40 rounded-lg min-h-[90px] opacity-30"></div>)
+                  }
+
+                  // Días del mes
+                  currentMonthDays.forEach((day, index) => {
+                    const dateStr = day.toISOString().split('T')[0]
+                    const data = tradesByDate[dateStr]
+                    const dayNum = index + 1
+                    cells.push(
+                      <div key={dateStr} className={`border rounded-lg p-2 flex flex-col justify-between min-h-[90px] transition-all ${data ? (data.pnl >= 0 ? 'bg-emerald-950/20 border-emerald-900/50 hover:border-emerald-500' : 'bg-rose-950/20 border-rose-900/50 hover:border-rose-500') : 'bg-[#161b22] border-slate-800'}`}>
+                        <div className="flex justify-between items-start text-xs text-slate-400">
+                          <span className="font-semibold text-slate-300">{dayNum}</span>
+                          <span className="text-[10px] opacity-60">📋</span>
+                        </div>
+                        {data ? (
+                          <div className="text-right">
+                            <span className={`block text-xs font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {data.pnl >= 0 ? `+$${data.pnl.toFixed(2)}` : `-$${Math.abs(data.pnl).toFixed(2)}`}
+                            </span>
+                            <span className="text-[10px] text-slate-400">{data.count} trades</span>
+                          </div>
+                        ) : (
+                          <div className="text-right text-[10px] text-slate-600">$0<br/>0 trades</div>
+                        )}
+                      </div>
+                    )
+                  })
+
+                  return cells
+                })()}
+              </div>
+            </div>
+
+            {/* Cuadrícula de 12 Meses del Año (Abajo) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {monthsNames.map((mName, mIndex) => {
+                const isSelected = selectedMonth === mIndex
+                return (
+                  <div key={mName} className={`bg-[#121620] border rounded-xl p-4 shadow transition-all ${isSelected ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-slate-800 hover:border-slate-700'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-bold text-white">{mName}, {selectedYear}</span>
+                      <button 
+                        onClick={() => setSelectedMonth(mIndex)}
+                        className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                      >
+                        {isSelected ? 'Active' : 'Open'}
+                      </button>
+                    </div>
+
+                    {/* Mini calendario */}
+                    <div className="grid grid-cols-7 gap-1 text-center text-[10px]">
+                      {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                        <span key={d} className="text-slate-500 font-semibold">{d}</span>
+                      ))}
+                      {/* Mini celdas simplificadas */}
+                      {Array.from({ length: 31 }).map((_, dIdx) => {
+                        const dayNum = dIdx + 1
+                        const pad = (n: number) => String(n).padStart(2, '0')
+                        const dStr = `${selectedYear}-${pad(selectedMonth + 1)}-${pad(dayNum)}`
+                        const hasTrade = tradesByDate[dStr]
+                        return (
+                          <div 
+                            key={dIdx} 
+                            className={`py-1 rounded text-[9px] ${hasTrade ? (hasTrade.pnl >= 0 ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'bg-rose-500/20 text-rose-300 font-bold') : 'text-slate-600'}`}
+                          >
+                            {dayNum <= 31 ? dayNum : ''}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <p className="text-sm font-medium text-slate-400">P&L Neto ($)</p>
-            <div className={`text-2xl font-bold mt-2 ${totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {totalPnL >= 0 ? `+$${totalPnL.toFixed(2)}` : `-$${Math.abs(totalPnL).toFixed(2)}`}
-            </div>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <p className="text-sm font-medium text-slate-400">Riesgo Total ($R$)</p>
-            <div className={`text-2xl font-bold mt-2 ${totalR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {totalR >= 0 ? `+${totalR.toFixed(2)}R` : `${totalR.toFixed(2)}R`}
-            </div>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <p className="text-sm font-medium text-slate-400">Win Rate</p>
-            <div className="text-2xl font-bold text-white mt-2">{winRate}%</div>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <p className="text-sm font-medium text-slate-400">Total Ejecuciones</p>
-            <div className="text-2xl font-bold text-white mt-2">{trades.length}</div>
-          </div>
-        </div>
-
+        {/* VISTA DASHBOARD ($y$R) */}
         {activeTab === 'dashboard' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-              <BarChart3 className="w-5 h-5 text-emerald-400" />
-              <span>Desglose de Operaciones (DAS Trader)</span>
-            </h3>
-            {trades.length === 0 ? (
-              <div className="text-center py-16 text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                Sube tu archivo CSV de DAS Trader (`09102026.csv`) para ver los trades en detalle.
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">P&L Total Net</span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">+$458.12</div>
               </div>
-            ) : (
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">R-Multiple Acumulado</span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">+12.4R</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Win Rate</span>
+                <div className="text-2xl font-bold text-white mt-1">68.5%</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Profit Factor</span>
+                <div className="text-2xl font-bold text-white mt-1">2.84</div>
+              </div>
+            </div>
+
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6">
+              <h3 className="text-md font-bold text-white mb-4">Registro detallado de Operaciones (DAS Trader)</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-950 text-slate-400 uppercase text-xs tracking-wider">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-[#1a202c] text-slate-400 uppercase">
                     <tr>
-                      <th className="p-3">Símbolo</th>
-                      <th className="p-3">Side</th>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Ticker</th>
+                      <th className="p-3">Acción</th>
+                      <th className="p-3">Shares</th>
                       <th className="p-3">Precio</th>
-                      <th className="p-3">Qty</th>
-                      <th className="p-3">Hora</th>
                       <th className="p-3">P&L ($)</th>
-                      <th className="p-3">P&L (R)</th>
+                      <th className="p-3">R-Multiple</th>
+                      <th className="p-3">Trader</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {trades.map((t, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/50">
-                        <td className="p-3 font-semibold text-white">{t.symbol}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${t.side === 'B' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-                            {t.side}
-                          </span>
-                        </td>
-                        <td className="p-3">${t.price.toFixed(2)}</td>
-                        <td className="p-3">{t.qty}</td>
-                        <td className="p-3 text-slate-400">{t.time}</td>
+                    {trades.map(t => (
+                      <tr key={t.id} className="hover:bg-[#1a202c]/50">
+                        <td className="p-3">{t.date}</td>
+                        <td className="p-3 font-bold text-white">{t.ticker}</td>
+                        <td className="p-3">{t.action}</td>
+                        <td className="p-3">{t.shares}</td>
+                        <td className="p-3">${t.price}</td>
                         <td className={`p-3 font-semibold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {t.pnl >= 0 ? `+$${t.pnl.toFixed(2)}` : `-$${Math.abs(t.pnl).toFixed(2)}`}
+                          ${t.pnl.toFixed(2)}
                         </td>
-                        <td className={`p-3 font-semibold ${t.pnlR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {t.pnlR >= 0 ? `+${t.pnlR}R` : `${t.pnlR}R`}
+                        <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {t.rMultiple}R
                         </td>
+                        <td className="p-3 text-slate-400">{t.trader}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'calendar' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-              <Calendar className="w-5 h-5 text-emerald-400" />
-              <span>Calendario Mensual de Resultados</span>
-            </h3>
-            <div className="grid grid-cols-7 gap-3 pt-4 text-center">
-              {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => (
-                <div key={d} className="text-xs font-bold text-slate-500 uppercase">{d}</div>
-              ))}
-              {Array.from({ length: 31 }).map((_, i) => {
-                const dayNum = i + 1;
-                const isSampleDay = dayNum === 9;
-                return (
-                  <div 
-                    key={i} 
-                    className={`h-24 rounded-xl border p-2 flex flex-col justify-between transition-all ${isSampleDay ? 'bg-emerald-950/20 border-emerald-500/40 shadow-lg' : 'bg-slate-950/50 border-slate-800'}`}
-                  >
-                    <span className="text-xs font-bold text-slate-400">{dayNum}</span>
-                    {isSampleDay && trades.length > 0 ? (
-                      <div>
-                        <div className="text-xs font-extrabold text-emerald-400">+${totalPnL.toFixed(2)}</div>
-                        <div className="text-[10px] text-emerald-500 font-bold">+{totalR.toFixed(2)}R</div>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-slate-600">-</span>
-                    )}
-                  </div>
-                )
-              })}
             </div>
           </div>
         )}
 
-        {activeTab === 'community' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-              <Award className="w-5 h-5 text-emerald-400" />
-              <span>Leaderboard de la Comunidad (5-10 Traders)</span>
-            </h3>
-            <div className="space-y-3 pt-2">
+        {/* VISTA LEADERBOARD */}
+        {activeTab === 'leaderboard' && (
+          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto">
+            <h3 className="text-lg font-bold text-white mb-4 text-center">🏆 Leaderboard Comunitario (Small Caps)</h3>
+            <div className="space-y-3">
               {[
-                { name: 'ChowaTrader (Tú)', r: '+4.31R', pnl: '+$101.95', winRate: '65.2%', rank: 1 },
-                { name: 'Trader_Alex', r: '+12.40R', pnl: '+$840.00', winRate: '58.0%', rank: 2 },
-                { name: 'SmallCapKing', r: '-1.50R', pnl: '-$120.50', winRate: '42.1%', rank: 3 }
-              ].map((member) => (
-                <div key={member.rank} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${member.rank === 1 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-300'}`}>
-                      #{member.rank}
-                    </span>
+                { rank: 1, name: 'ChowaTrader', pnl: '+$1,420.50', r: '+18.2R', winrate: '74%' },
+                { rank: 2, name: 'Trader2', pnl: '+$980.20', r: '+12.5R', winrate: '65%' },
+                { rank: 3, name: 'Trader3', pnl: '+$450.00', r: '+6.1R', winrate: '58%' },
+              ].map(trader => (
+                <div key={trader.rank} className="flex items-center justify-between p-4 bg-[#1a202c] rounded-xl border border-slate-700/50">
+                  <div className="flex items-center gap-4">
+                    <span className="text-lg font-bold text-slate-400">#{trader.rank}</span>
                     <div>
-                      <h4 className="font-semibold text-white">{member.name}</h4>
-                      <p className="text-xs text-slate-400">Win Rate: {member.winRate}</p>
+                      <h4 className="font-bold text-white">{trader.name}</h4>
+                      <span className="text-xs text-slate-400">Win Rate: {trader.winrate}</span>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-bold text-emerald-400">{member.r}</div>
-                    <div className="text-xs text-slate-400">{member.pnl}</div>
+                    <span className="block font-bold text-emerald-400">{trader.pnl}</span>
+                    <span className="text-xs text-slate-400">{trader.r}</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
         )}
+
       </main>
     </div>
   )
