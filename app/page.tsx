@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react'
 
 interface Trade {
   id: string
-  date: string // YYYY-MM-DD
+  date: string
   ticker: string
   action: string
   shares: number
@@ -28,7 +28,6 @@ export default function TradingJournal() {
     { id: '7', date: '2026-10-10', ticker: 'AMZN', action: 'BUY', shares: 400, price: 190, pnl: 102.12, rMultiple: 2.2, trader: 'Trader3' },
   ])
 
-  // Importar CSV de DAS Trader Pro
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -64,7 +63,6 @@ export default function TradingJournal() {
 
   const monthsNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
-  // Agrupar trades por fecha
   const tradesByDate = useMemo(() => {
     const map: { [key: string]: { pnl: number; count: number } } = {}
     trades.forEach(t => {
@@ -75,13 +73,12 @@ export default function TradingJournal() {
     return map
   }, [trades])
 
-  // Generar semanas exactas para el calendario mensual estilo TraderSync
   const calendarWeeks = useMemo(() => {
     const firstDay = new Date(selectedYear, selectedMonth, 1)
     const lastDay = new Date(selectedYear, selectedMonth + 1, 0)
     
     let currentDay = new Date(firstDay)
-    currentDay.setDate(currentDay.getDate() - currentDay.getDay()) // Empezar en Domingo
+    currentDay.setDate(currentDay.getDate() - currentDay.getDay())
 
     const weeks = []
     while (currentDay <= lastDay || weeks.length < 5) {
@@ -122,14 +119,12 @@ export default function TradingJournal() {
     return weeks
   }, [selectedYear, selectedMonth, tradesByDate])
 
-  // P&L total del mes
   const monthlyPnl = useMemo(() => {
     return calendarWeeks.reduce((acc, w) => acc + w.weekPnl, 0)
   }, [calendarWeeks])
 
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
-      {/* Top Navbar */}
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
@@ -165,10 +160,8 @@ export default function TradingJournal() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="p-6 max-w-[1500px] mx-auto space-y-6">
 
-        {/* SELECTOR DE MESES Y AÑOS */}
         <div className="flex items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <select 
@@ -198,17 +191,14 @@ export default function TradingJournal() {
           </div>
         </div>
 
-        {/* VISTA CALENDAR (Estilo TraderSync exacto) */}
         {activeTab === 'calendar' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
-            
             <div className="flex justify-between items-center mb-2">
               <h2 className="text-lg font-bold text-white">
                 {monthsNames[selectedMonth]}, {selectedYear}
               </h2>
             </div>
 
-            {/* Cabecera de días y columna Total */}
             <div className="grid grid-cols-8 gap-2">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((d, i) => (
                 <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">
@@ -217,16 +207,14 @@ export default function TradingJournal() {
               ))}
             </div>
 
-            {/* Filas de Semanas */}
             <div className="space-y-2">
               {calendarWeeks.map((week, wIdx) => (
                 <div key={wIdx} className="grid grid-cols-8 gap-2">
-                  {/* 7 Días de la semana */}
                   {week.days.map((day, dIdx) => (
                     <div 
                       key={dIdx} 
                       className={`border rounded-lg p-2.5 flex flex-col justify-between min-h-[95px] ${
-                        !day.isCurrenMonth 
+                        !day.isCurrentMonth 
                           ? 'bg-[#0b0e14]/50 border-slate-900 text-slate-600' 
                           : day.data 
                             ? day.data.pnl >= 0 
@@ -236,13 +224,13 @@ export default function TradingJournal() {
                       }`}
                     >
                       <div className="flex justify-between items-start text-xs">
-                        <span className={`font-semibold ${day.isCurrenMonth ? 'text-slate-200' : 'text-slate-600'}`}>
+                        <span className={`font-semibold ${day.isCurrentMonth ? 'text-slate-200' : 'text-slate-600'}`}>
                           {day.dayNum}
                         </span>
                         <span className="text-[10px] text-slate-500">📋</span>
                       </div>
                       
-                      {day.isCurrenMonth && day.data ? (
+                      {day.isCurrentMonth && day.data ? (
                         <div className="text-right">
                           <span className={`block text-xs font-bold ${day.data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {day.data.pnl >= 0 ? `+$${day.data.pnl.toFixed(2)}` : `-$${Math.abs(day.data.pnl).toFixed(2)}`}
@@ -251,13 +239,12 @@ export default function TradingJournal() {
                         </div>
                       ) : (
                         <div className="text-right text-[10px] text-slate-500">
-                          {day.isCurrenMonth ? <>$0<br/>0 trades</> : ''}
+                          {day.isCurrentMonth ? <>$0<br/>0 trades</> : ''}
                         </div>
                       )}
                     </div>
                   ))}
 
-                  {/* Columna Total Semanal */}
                   <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
                     <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
                     <div>
@@ -270,13 +257,98 @@ export default function TradingJournal() {
                 </div>
               ))}
             </div>
-
           </div>
         )}
 
-        {/* VISTA DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
                 <span className="text-xs text-slate-400 font-medium">P&L Total Net</span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">+$458.12</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">R-Multiple Acumulado</span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">+12.4R</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Win Rate</span>
+                <div className="text-2xl font-bold text-white mt-1">68.5%</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Profit Factor</span>
+                <div className="text-2xl font-bold text-white mt-1">2.84</div>
+              </div>
+            </div>
+
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6">
+              <h3 className="text-md font-bold text-white mb-4">Registro detallado de Operaciones (DAS Trader)</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-[#161b22] text-slate-400 uppercase">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Ticker</th>
+                      <th className="p-3">Acción</th>
+                      <th className="p-3">Shares</th>
+                      <th className="p-3">Precio</th>
+                      <th className="p-3">P&L ($)</th>
+                      <th className="p-3">R-Multiple</th>
+                      <th className="p-3">Trader</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {trades.map(t => (
+                      <tr key={t.id} className="hover:bg-[#161b22]/50">
+                        <td className="p-3">{t.date}</td>
+                        <td className="p-3 font-bold text-white">{t.ticker}</td>
+                        <td className="p-3">{t.action}</td>
+                        <td className="p-3">{t.shares}</td>
+                        <td className="p-3">${t.price}</td>
+                        <td className={`p-3 font-semibold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          ${t.pnl.toFixed(2)}
+                        </td>
+                        <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {t.rMultiple}R
+                        </td>
+                        <td className="p-3 text-slate-400">{t.trader}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'leaderboard' && (
+          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl">
+            <h3 className="text-lg font-bold text-white mb-4 text-center">🏆 Leaderboard Comunitario (Small Caps)</h3>
+            <div className="space-y-3">
+              {[
+                { rank: 1, name: 'ChowaTrader', pnl: '+$1,420.50', r: '+18.2R', winrate: '74%' },
+                { rank: 2, name: 'Trader2', pnl: '+$980.20', r: '+12.5R', winrate: '65%' },
+                { rank: 3, name: 'Trader3', pnl: '+$450.00', r: '+6.1R', winrate: '58%' },
+              ].map(trader => (
+                <div key={trader.rank} className="flex items-center justify-between p-4 bg-[#161b22] rounded-xl border border-slate-800">
+                  <div className="flex items-center gap-4">
+                    <span className="text-lg font-bold text-slate-400">#{trader.rank}</span>
+                    <div>
+                      <h4 className="font-bold text-white">{trader.name}</h4>
+                      <span className="text-xs text-slate-400">Win Rate: {trader.winrate}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="block font-bold text-emerald-400">{trader.pnl}</span>
+                    <span className="text-xs text-slate-400">{trader.r}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  )
+}
