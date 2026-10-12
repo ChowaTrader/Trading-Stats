@@ -20,7 +20,8 @@ export default function TradingJournal() {
   const [user, setUser] = useState<any>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'leaderboard'>('calendar')
+  // 5 Secciones Principales
+  const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal' | 'community'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
   const [selectedMonth, setSelectedMonth] = useState<number>(9)
   const [trades, setTrades] = useState<Trade[]>([])
@@ -45,7 +46,7 @@ export default function TradingJournal() {
     }
   }, [])
 
-  // Cargar trades privados del usuario autenticado
+  // Cargar trades privados del usuario
   useEffect(() => {
     if (!user) return
 
@@ -185,30 +186,43 @@ export default function TradingJournal() {
 
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
+      {/* Top Navbar */}
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-          <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-          Track Your Edge <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
+            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+            Track Your Edge <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
           </h1>
           <nav className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
             <button 
               onClick={() => setActiveTab('calendar')}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'calendar' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === 'calendar' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
             >
               📅 Calendario
             </button>
             <button 
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              onClick={() => setActiveTab('reports')}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === 'reports' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
             >
-              📊 Dashboard $ / $R
+              📊 Reports
             </button>
             <button 
-              onClick={() => setActiveTab('leaderboard')}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'leaderboard' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              onClick={() => setActiveTab('trades')}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === 'trades' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
             >
-              🏆 Leaderboard
+              ⚡ Trades
+            </button>
+            <button 
+              onClick={() => setActiveTab('journal')}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === 'journal' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            >
+              📝 Journal
+            </button>
+            <button 
+              onClick={() => setActiveTab('community')}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${activeTab === 'community' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+            >
+              🏆 Community
             </button>
           </nav>
         </div>
@@ -229,124 +243,159 @@ export default function TradingJournal() {
         </div>
       </header>
 
+      {/* Main Content */}
       <main className="p-6 max-w-[1500px] mx-auto space-y-6">
-        <div className="flex items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <select 
-              value={selectedMonth} 
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="bg-[#161b22] border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none"
-            >
-              {monthsNames.map((m, idx) => (
-                <option key={m} value={idx}>{m}</option>
-              ))}
-            </select>
-            <select 
-              value={selectedYear} 
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="bg-[#161b22] border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none"
-            >
-              {[2024, 2025, 2026, 2027].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-          <div className="text-right">
-            <span className="text-xs text-slate-400 mr-2">Monthly P&L:</span>
-            <span className={`text-base font-bold ${monthlyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              ${monthlyPnl.toFixed(2)}
-            </span>
-          </div>
-        </div>
 
+        {/* 1. SECCIÓN CALENDARIO */}
         {activeTab === 'calendar' && (
-          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-bold text-white">
-                {monthsNames[selectedMonth]}, {selectedYear}
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-8 gap-2">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((d, i) => (
-                <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">
-                  {d}
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              {calendarWeeks.map((week, wIdx) => (
-                <div key={wIdx} className="grid grid-cols-8 gap-2">
-                  {week.days.map((day, dIdx) => (
-                    <div 
-                      key={dIdx} 
-                      className={`border rounded-lg p-2.5 flex flex-col justify-between min-h-[95px] ${
-                        !day.isCurrentMonth 
-                          ? 'bg-[#0b0e14]/50 border-slate-900 text-slate-600' 
-                          : day.data 
-                            ? day.data.pnl >= 0 
-                              ? 'bg-[#12221c] border-emerald-900/50 hover:border-emerald-500' 
-                              : 'bg-[#261519] border-rose-900/50 hover:border-rose-500' 
-                            : 'bg-[#161b22] border-slate-800 text-slate-400'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start text-xs">
-                        <span className={`font-semibold ${day.isCurrentMonth ? 'text-slate-200' : 'text-slate-600'}`}>
-                          {day.dayNum}
-                        </span>
-                        <span className="text-[10px] text-slate-500">📋</span>
-                      </div>
-                      
-                      {day.isCurrentMonth && day.data ? (
-                        <div className="text-right">
-                          <span className={`block text-xs font-bold ${day.data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {day.data.pnl >= 0 ? `+$${day.data.pnl.toFixed(2)}` : `-$${Math.abs(day.data.pnl).toFixed(2)}`}
-                          </span>
-                          <span className="text-[10px] text-slate-400">{day.data.count} trades</span>
-                        </div>
-                      ) : (
-                        <div className="text-right text-[10px] text-slate-500">
-                          {day.isCurrentMonth ? <>$0<br/>0 trades</> : ''}
-                        </div>
-                      )}
-                    </div>
+          <div className="space-y-6">
+            <div className="flex items-center justify-between bg-[#121620] border border-slate-800 rounded-xl p-4">
+              <div className="flex items-center gap-3">
+                <select 
+                  value={selectedMonth} 
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  className="bg-[#161b22] border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none"
+                >
+                  {monthsNames.map((m, idx) => (
+                    <option key={m} value={idx}>{m}</option>
                   ))}
+                </select>
+                <select 
+                  value={selectedYear} 
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="bg-[#161b22] border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none"
+                >
+                  {[2024, 2025, 2026, 2027].map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-400 mr-2">Monthly P&L:</span>
+                <span className={`text-base font-bold ${monthlyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  ${monthlyPnl.toFixed(2)}
+                </span>
+              </div>
+            </div>
 
-                  <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
-                    <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
-                    <div>
-                      <span className={`block text-xs font-bold ${week.weekPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {week.weekPnl >= 0 ? `+$${week.weekPnl.toFixed(2)}` : `-$${Math.abs(week.weekPnl).toFixed(2)}`}
-                      </span>
-                      <span className="text-[10px] text-slate-400">{week.weekTradesCount} trades</span>
+            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
+              <div className="flex justify-between items-center mb-2">
+                <h2 className="text-lg font-bold text-white">
+                  {monthsNames[selectedMonth]}, {selectedYear}
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-8 gap-2">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Total'].map((d, i) => (
+                  <div key={i} className="text-center text-xs font-semibold text-slate-400 py-2 bg-[#161b22] rounded border border-slate-800">
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                {calendarWeeks.map((week, wIdx) => (
+                  <div key={wIdx} className="grid grid-cols-8 gap-2">
+                    {week.days.map((day, dIdx) => (
+                      <div 
+                        key={dIdx} 
+                        className={`border rounded-lg p-2.5 flex flex-col justify-between min-h-[95px] ${
+                          !day.isCurrentMonth 
+                            ? 'bg-[#0b0e14]/50 border-slate-900 text-slate-600' 
+                            : day.data 
+                              ? day.data.pnl >= 0 
+                                ? 'bg-[#12221c] border-emerald-900/50 hover:border-emerald-500' 
+                                : 'bg-[#261519] border-rose-900/50 hover:border-rose-500' 
+                              : 'bg-[#161b22] border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start text-xs">
+                          <span className={`font-semibold ${day.isCurrentMonth ? 'text-slate-200' : 'text-slate-600'}`}>
+                            {day.dayNum}
+                          </span>
+                          <span className="text-[10px] text-slate-500">📋</span>
+                        </div>
+                        
+                        {day.isCurrentMonth && day.data ? (
+                          <div className="text-right">
+                            <span className={`block text-xs font-bold ${day.data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {day.data.pnl >= 0 ? `+$${day.data.pnl.toFixed(2)}` : `-$${Math.abs(day.data.pnl).toFixed(2)}`}
+                            </span>
+                            <span className="text-[10px] text-slate-400">{day.data.count} trades</span>
+                          </div>
+                        ) : (
+                          <div className="text-right text-[10px] text-slate-500">
+                            {day.isCurrentMonth ? <>$0<br/>0 trades</> : ''}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    <div className="bg-[#161b22] border border-slate-800 rounded-lg p-2.5 flex flex-col justify-between text-right">
+                      <span className="text-xs font-bold text-white text-left">Week {week.weekNum}</span>
+                      <div>
+                        <span className={`block text-xs font-bold ${week.weekPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {week.weekPnl >= 0 ? `+$${week.weekPnl.toFixed(2)}` : `-$${Math.abs(week.weekPnl).toFixed(2)}`}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{week.weekTradesCount} trades</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'dashboard' && (
+        {/* 2. SECCIÓN REPORTS */}
+        {activeTab === 'reports' && (
           <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Net P&L Total</span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">+$1,245.50</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">R-Multiple Acumulado</span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">+14.2R</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Win Rate</span>
+                <div className="text-2xl font-bold text-white mt-1">68.4%</div>
+              </div>
+              <div className="bg-[#121620] border border-slate-800 p-5 rounded-xl shadow">
+                <span className="text-xs text-slate-400 font-medium">Profit Factor</span>
+                <div className="text-2xl font-bold text-white mt-1">2.65</div>
+              </div>
+            </div>
+
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6">
-              <h3 className="text-md font-bold text-white mb-4">Registro de Operaciones Privadas (DAS Trader)</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-[#161b22] text-slate-400 uppercase">
-                    <tr>
-                      <th className="p-3">Fecha</th>
-                      <th className="p-3">Ticker</th>
-                      <th className="p-3">Acción</th>
-                      <th className="p-3">Shares</th>
-                      <th className="p-3">Precio</th>
-                      <th className="p-3">P&L ($)</th>
-                      <th className="p-3">R-Multiple</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {trades.map(t => (
+              <h3 className="text-sm font-bold text-white mb-2">📊 Análisis de Rendimiento & Curva de Equidad</h3>
+              <p className="text-xs text-slate-400">Próximamente: Gráficos detallados por hora, precio, día de la semana y setups.</p>
+            </div>
+          </div>
+        )}
+
+        {/* 3. SECCIÓN TRADES */}
+        {activeTab === 'trades' && (
+          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl">
+            <h3 className="text-md font-bold text-white mb-4">⚡ Registro de Operaciones Importadas (DAS Trader)</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-[#161b22] text-slate-400 uppercase">
+                  <tr>
+                    <th className="p-3">Fecha</th>
+                    <th className="p-3">Ticker</th>
+                    <th className="p-3">Acción</th>
+                    <th className="p-3">Shares</th>
+                    <th className="p-3">Precio</th>
+                    <th className="p-3">P&L ($)</th>
+                    <th className="p-3">R-Multiple</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {trades.length > 0 ? (
+                    trades.map(t => (
                       <tr key={t.id} className="hover:bg-[#161b22]/50">
                         <td className="p-3">{t.date}</td>
                         <td className="p-3 font-bold text-white">{t.ticker}</td>
@@ -360,18 +409,42 @@ export default function TradingJournal() {
                           {t.rMultiple}R
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-slate-500">
+                        No hay operaciones registradas aún. Usa el botón "Importar CSV DAS Trader" para cargar tu historial.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
 
-        {activeTab === 'leaderboard' && (
+        {/* 4. SECCIÓN JOURNAL */}
+        {activeTab === 'journal' && (
+          <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
+            <h3 className="text-md font-bold text-white">📝 Diario de Trading & Notas Psicológicas</h3>
+            <p className="text-xs text-slate-400">
+              Registra tu mentalidad del día, cumplimiento de reglas y capturas de pantalla de los gráficos.
+            </p>
+            <textarea 
+              placeholder="Escribe tus notas de trading de hoy..." 
+              className="w-full bg-[#161b22] border border-slate-700 rounded-lg p-4 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 h-32"
+            ></textarea>
+            <button className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md transition-colors shadow">
+              Guardar Nota Diaria
+            </button>
+          </div>
+        )}
+
+        {/* 5. SECCIÓN COMMUNITY */}
+        {activeTab === 'community' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 max-w-2xl mx-auto shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-4 text-center">🏆 Leaderboard Comunitario (Small Caps)</h3>
-            <p className="text-xs text-slate-400 text-center mb-6">Métricas agregadas anónimas de la comunidad</p>
+            <h3 className="text-lg font-bold text-white mb-2 text-center">🏆 Leaderboard Comunitario (Small Caps)</h3>
+            <p className="text-xs text-slate-400 text-center mb-6">Ranking privado y compartido de los 5-10 traders del grupo</p>
             <div className="space-y-3">
               {[
                 { rank: 1, name: 'ChowaTrader', pnl: '+$1,420.50', r: '+18.2R', winrate: '74%' },
@@ -395,6 +468,7 @@ export default function TradingJournal() {
             </div>
           </div>
         )}
+
       </main>
     </div>
   )
