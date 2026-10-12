@@ -59,11 +59,12 @@ export default function TradingJournal() {
       const { data, error } = await supabase
         .from('trades')
         .select('*')
-        .order('date', { ascending: false })
+        .order('id', { ascending: false })
 
       if (!error && data) {
         const mapped = data.map((t: any) => ({
           ...t,
+          date: t.date || t.trade_date || new Date().toISOString().split('T')[0],
           ticker: t.ticker || t.symbol || 'UNKNOWN',
           rMultiple: t.r_multiple ?? 0
         }))
@@ -125,6 +126,7 @@ export default function TradingJournal() {
               newTradesToInsert.push({
                 user_id: user.id,
                 date: formattedDate,
+                trade_date: formattedDate,
                 symbol: symbolVal,
                 ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
@@ -162,6 +164,7 @@ export default function TradingJournal() {
               newTradesToInsert.push({
                 user_id: user.id,
                 date: fileDate,
+                trade_date: fileDate,
                 symbol: symbolVal,
                 ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 1] || 'S',
@@ -187,9 +190,12 @@ export default function TradingJournal() {
               const symbolVal = cols[symbolIdx >= 0 ? symbolIdx : 7]?.trim()
               if (!symbolVal || symbolVal === 'Symbol' || symbolVal === 'NaN') continue
 
+              const rowDate = cols[dateIdx >= 0 ? dateIdx : 4] || new Date().toISOString().split('T')[0]
+
               newTradesToInsert.push({
                 user_id: user.id,
-                date: cols[dateIdx >= 0 ? dateIdx : 4] || new Date().toISOString().split('T')[0],
+                date: rowDate,
+                trade_date: rowDate,
                 symbol: symbolVal,
                 ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 6] || 'B',
@@ -208,6 +214,7 @@ export default function TradingJournal() {
           if (!error && data) {
             const mappedNew = data.map((t: any) => ({
               ...t,
+              date: t.date || t.trade_date || new Date().toISOString().split('T')[0],
               ticker: t.ticker || t.symbol || 'UNKNOWN',
               rMultiple: t.r_multiple ?? 0
             }))
@@ -240,9 +247,10 @@ export default function TradingJournal() {
   const tradesByDate = useMemo(() => {
     const map: { [key: string]: { pnl: number; count: number } } = {}
     trades.forEach(t => {
-      if (!map[t.date]) map[t.date] = { pnl: 0, count: 0 }
-      map[t.date].pnl += t.pnl
-      map[t.date].count += 1
+      const d = t.date || '2026-10-12'
+      if (!map[d]) map[d] = { pnl: 0, count: 0 }
+      map[d].pnl += t.pnl
+      map[d].count += 1
     })
     return map
   }, [trades])
