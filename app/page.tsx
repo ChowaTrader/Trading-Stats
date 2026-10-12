@@ -28,13 +28,11 @@ export default function TradingJournal() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [journalNote, setJournalNote] = useState('')
 
-  // Estado para el modal de importación CSV
   const [showImportModal, setShowImportModal] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformType>('tradervue')
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
-  // Comprobar sesión de usuario con Supabase
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -54,7 +52,6 @@ export default function TradingJournal() {
     }
   }, [])
 
-  // Cargar trades privados del usuario
   useEffect(() => {
     if (!user) return
 
@@ -65,7 +62,6 @@ export default function TradingJournal() {
         .order('date', { ascending: false })
 
       if (!error && data) {
-        // Mapear r_multiple de DB a rMultiple del cliente
         const mapped = data.map((t: any) => ({
           ...t,
           rMultiple: t.r_multiple ?? 0
@@ -83,7 +79,7 @@ export default function TradingJournal() {
     setTrades([])
   }
 
-  // Parser específico según la plataforma seleccionada
+  // Parser exacto para Tradervue, DAS Trader Pro y Sage Pro
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !user) return
@@ -98,83 +94,86 @@ export default function TradingJournal() {
         if (!text) throw new Error("El archivo está vacío.")
 
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-        if (lines.length < 2) throw new Error("El archivo CSV no contiene suficientes datos.")
+        if (lines.length < 2) throw new Error("El archivo CSV no contiene datos.")
 
         const newTradesToInsert: any[] = []
-        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
-
-        const getIndex = (names: string[]) => headers.findIndex(h => names.some(n => h.toLowerCase() === n.toLowerCase()))
 
         if (selectedPlatform === 'tradervue') {
-          // Parser Tradervue (ej: trades.csv)
-          const dateIdx = getIndex(['Open Datetime', 'Date'])
-          const symbolIdx = getIndex(['Symbol', 'Ticker'])
-          const sideIdx = getIndex(['Side', 'Action'])
-          const volumeIdx = getIndex(['Volume', 'Shares'])
-          const priceIdx = getIndex(['Entry Price', 'Price'])
-          const netPnlIdx = getIndex(['Net P&L', 'P&L'])
-          const rIdx = getIndex(['P&L (R)', 'rMultiple', 'R'])
-
+          // 1. TRADERVUE (Open Datetime, Symbol, Side, Volume, Entry Price, Net P&L, P&L (R))
           for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-            if (cols.length >= 5) {
-              const rawDate = cols[dateIdx >= 0 ? dateIdx : 0] || ''
+            const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(',')
+            const clean = cols.map(c => c.trim().replace(/^"|"$/g, ''))
+
+            if (clean.length >= 8) {
+              const ticker = clean[2]?.trim()
+              if (!ticker || ticker === 'Symbol') continue
+
+              const rawDate = clean[0] || ''
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
-              
-              const rawR = cols[rIdx >= 0 ? rIdx : 17] || '0'
+
+              const rawR = clean[18] || '0'
               const parsedR = parseFloat(rawR.replace('R', '')) || 0
 
               newTradesToInsert.push({
                 user_id: user.id,
                 date: formattedDate,
-                ticker: cols[symbolIdx >= 0 ? symbolIdx : 2] || 'UNKNOWN',
-                action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
-                shares: parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4]) || 100,
-                price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 10,
-                pnl: parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
+                ticker: ticker,
+                action: clean[3] || 'L',
+                shares: Math.abs(parseFloat(clean[4])) || 100,
+                price: parseFloat(clean[6]) || 0,
+                pnl: parseFloat(clean[14]) || 0,
                 r_multiple: parsedR,
                 trader: user.email?.split('@')[0] || 'Trader'
               })
             }
           }
         } else if (selectedPlatform === 'das') {
-          // Parser DAS Trader Pro
-          const dateIdx = getIndex(['Date', 'Fecha', 'Time'])
-          const symbolIdx = getIndex(['Symbol', 'Ticker'])
-          const sideIdx = getIndex(['Side', 'Action', 'Buy/Sell'])
-          const volumeIdx = getIndex(['Shares', 'Volume', 'Qty'])
-          const priceIdx = getIndex(['Price', 'Exec Price'])
-          const pnlIdx = getIndex(['P&L', 'Net P&L', 'Profit'])
+          // 2. DAS TRADER PRO (Symbol, Side, Type, Price, Qty, Time, Route, P / L, P/L R)
+          // Fecha por nombre del archivo (ej: 12102026.csv -> 2026-10-12) o hoy
+          let fileDate = new Date().toISOString().split('T')[0]
+          const fileNameMatch = file.name.match(/(\d{2})(\d{2})(\d{4})/)
+          if (fileNameMatch) {
+            fileDate = `${fileNameMatch[3]}-${fileNameMatch[2]}-${fileNameMatch[1]}`
+          }
 
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-            if (cols.length >= 4) {
+            if (cols.length >= 8) {
+              const ticker = cols[0]?.trim()
+              if (!ticker || ticker === 'Symbol') continue
+
+              const rawR = cols[8] || '0'
+              const parsedR = parseFloat(rawR.replace('R', '')) || 0
+
               newTradesToInsert.push({
                 user_id: user.id,
-                date: cols[dateIdx >= 0 ? dateIdx : 0] || new Date().toISOString().split('T')[0],
-                ticker: cols[symbolIdx >= 0 ? symbolIdx : 1] || 'UNKNOWN',
-                action: cols[sideIdx >= 0 ? sideIdx : 2] || 'BUY',
-                shares: parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 3]) || 100,
-                price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 4]) || 10,
-                pnl: parseFloat(cols[pnlIdx >= 0 ? pnlIdx : 5]) || 0,
-                r_multiple: 0,
+                date: fileDate,
+                ticker: ticker,
+                action: cols[1] || 'S',
+                shares: Math.abs(parseFloat(cols[4])) || 0,
+                price: parseFloat(cols[3]) || 0,
+                pnl: parseFloat(cols[7]) || 0,
+                r_multiple: parsedR,
                 trader: user.email?.split('@')[0] || 'Trader'
               })
             }
           }
-        } else {
-          // Parser Sage Pro / Sterling
+        } else if (selectedPlatform === 'sage') {
+          // 3. SAGE PRO / STERLING (Trade Date, Side, Symbol, Qty, Price, Net Amt)
           for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-            if (cols.length >= 4) {
+            if (cols.length >= 10) {
+              const ticker = cols[7]?.trim()
+              if (!ticker || ticker === 'Symbol') continue
+
               newTradesToInsert.push({
                 user_id: user.id,
-                date: cols[0] || new Date().toISOString().split('T')[0],
-                ticker: cols[1] || 'UNKNOWN',
-                action: cols[2] || 'BUY',
-                shares: parseFloat(cols[3]) || 100,
-                price: parseFloat(cols[4]) || 10,
-                pnl: parseFloat(cols[5]) || 0,
+                date: cols[4] || new Date().toISOString().split('T')[0],
+                ticker: ticker,
+                action: cols[6] || 'B',
+                shares: Math.abs(parseFloat(cols[8])) || 0,
+                price: parseFloat(cols[9]) || 0,
+                pnl: parseFloat(cols[21]) || 0,
                 r_multiple: 0,
                 trader: user.email?.split('@')[0] || 'Trader'
               })
@@ -198,7 +197,7 @@ export default function TradingJournal() {
             throw new Error(error?.message || "Error al insertar en la base de datos.")
           }
         } else {
-          throw new Error("No se detectaron operaciones válidas en el formato seleccionado.")
+          throw new Error("No se detectaron operaciones válidas en el archivo seleccionado.")
         }
       } catch (err: any) {
         setImportStatus({
@@ -611,8 +610,8 @@ export default function TradingJournal() {
             <div className="space-y-3 mb-6">
               {[
                 { id: 'tradervue', name: 'Tradervue', desc: 'Archivo trades.csv exportado desde Tradervue' },
-                { id: 'das', name: 'DAS Trader Pro', desc: 'Exportación estándar de órdenes o trades en DAS' },
-                { id: 'sage', name: 'Sage Pro (Sterling)', desc: 'Exportación de ejecuciones Sterling / Sage Pro' },
+                { id: 'das', name: 'DAS Trader Pro', desc: 'Exportación diaria (ej. 12102026.csv) en DAS' },
+                { id: 'sage', name: 'Sage Pro (Sterling)', desc: 'Archivo Transactions.csv exportado de Sage/Sterling' },
               ].map((p) => (
                 <div 
                   key={p.id}
