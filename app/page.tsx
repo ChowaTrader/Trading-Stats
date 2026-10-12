@@ -83,10 +83,14 @@ export default function TradingJournal() {
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !user) return
+    if (!file) return
 
     setIsUploading(true)
     setImportStatus(null)
+
+    // Verificar sesión actualizada antes de enviar
+    const { data: { session } } = await supabase.auth.getSession()
+    const activeUserId = session?.user?.id || user?.id
 
     const reader = new FileReader()
     reader.onload = async (event) => {
@@ -124,7 +128,7 @@ export default function TradingJournal() {
               const parsedR = parseFloat(rawR.replace('R', '')) || 0
 
               newTradesToInsert.push({
-                user_id: user.id,
+                ...(activeUserId ? { user_id: activeUserId } : {}),
                 date: formattedDate,
                 trade_date: formattedDate,
                 symbol: symbolVal,
@@ -134,7 +138,7 @@ export default function TradingJournal() {
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
                 pnl: parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0,
                 r_multiple: parsedR,
-                trader: user.email?.split('@')[0] || 'Trader'
+                trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
             }
           }
@@ -162,7 +166,7 @@ export default function TradingJournal() {
               const parsedR = parseFloat(rawR.replace('R', '')) || 0
 
               newTradesToInsert.push({
-                user_id: user.id,
+                ...(activeUserId ? { user_id: activeUserId } : {}),
                 date: fileDate,
                 trade_date: fileDate,
                 symbol: symbolVal,
@@ -172,7 +176,7 @@ export default function TradingJournal() {
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 3]) || 0,
                 pnl: parseFloat(cols[pnlIdx >= 0 ? pnlIdx : 7]) || 0,
                 r_multiple: parsedR,
-                trader: user.email?.split('@')[0] || 'Trader'
+                trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
             }
           }
@@ -193,7 +197,7 @@ export default function TradingJournal() {
               const rowDate = cols[dateIdx >= 0 ? dateIdx : 4] || new Date().toISOString().split('T')[0]
 
               newTradesToInsert.push({
-                user_id: user.id,
+                ...(activeUserId ? { user_id: activeUserId } : {}),
                 date: rowDate,
                 trade_date: rowDate,
                 symbol: symbolVal,
@@ -203,7 +207,7 @@ export default function TradingJournal() {
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 9]) || 0,
                 pnl: parseFloat(cols[netAmtIdx >= 0 ? netAmtIdx : 21]) || 0,
                 r_multiple: 0,
-                trader: user.email?.split('@')[0] || 'Trader'
+                trader: session?.user?.email?.split('@')[0] || 'Trader'
               })
             }
           }
