@@ -188,8 +188,8 @@ export default function TradingJournal() {
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-            ChowaTrader <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
+          <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+          Track Your Edge <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
           </h1>
           <nav className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
             <button 
