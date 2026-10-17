@@ -9,14 +9,16 @@ interface Trade {
   action: string
   shares: number
   price: number
-  pnl: number
+  pnl: number        // Gross P&L
+  commission: number // Comisiones / ECN fees
   rMultiple: number
   tag?: string
-  initialRisk?: number
+  initialRisk?: number // 1R específico para este trade/día
 }
 
 type PlatformType = 'tradervue' | 'das' | 'sage'
 type DisplayMode = 'currency' | 'r'
+type PnlMode = 'gross' | 'net'
 
 export default function TradingJournal() {
   const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal'>('calendar')
@@ -24,7 +26,11 @@ export default function TradingJournal() {
   const [selectedMonth, setSelectedMonth] = useState<number>(9) // 9 = Octubre
   
   const [displayMode, setDisplayMode] = useState<DisplayMode>('currency')
-  const [dailyRisk, setDailyRisk] = useState<number>(100)
+  const [pnlMode, setPnlMode] = useState<PnlMode>('net') // Neto por defecto o Bruto
+  const [defaultRisk, setDefaultRisk] = useState<number>(100)
+
+  // Riesgo 1R específico por cada día (fecha -> valor de 1R en $)
+  const [dateRisks, setDateRisks] = useState<{ [date: string]: number }>({})
 
   const [trades, setTrades] = useState<Trade[]>([])
   const [journalNote, setJournalNote] = useState('')
@@ -33,6 +39,11 @@ export default function TradingJournal() {
   const [newTagInput, setNewTagInput] = useState('')
   const [selectedTradeIds, setSelectedTradeIds] = useState<string[]>([])
   
+  // Acciones masivas seleccionadas
+  const [batchActionType, setBatchActionType] = useState<string>('')
+  const [batchTagInput, setBatchTagInput] = useState<string>('')
+  const [batchRiskInput, setBatchRiskInput] = useState<string>('100')
+
   const [filterTicker, setFilterTicker] = useState('')
   const [filterTag, setFilterTag] = useState('ALL')
   const [filterSide, setFilterSide] = useState('ALL')
@@ -51,28 +62,52 @@ export default function TradingJournal() {
     if (savedTrades) {
       try {
         setTrades(JSON.parse(savedTrades))
-      } catch (e) {
-        console.error("Error al cargar trades locales", e)
-      }
+      } catch (e) {}
     }
 
     const savedTags = localStorage.getItem('local_trading_tags')
     if (savedTags) {
-      try {
-        setAvailableTags(JSON.parse(savedTags))
-      } catch (e) {}
+      try { setAvailableTags(JSON.parse(savedTags)) } catch (e) {}
     }
 
     const savedNote = localStorage.getItem('local_trading_journal')
-    if (savedNote) {
-      setJournalNote(savedNote)
+    if (savedNote) setJournalNote(savedNote)
+
+    const savedDateRisks = localStorage.getItem('local_trading_date_risks')
+    if (savedDateRisks) {
+      try { setDateRisks(JSON.parse(savedDateRisks)) } catch (e) {}
     }
   }, [])
 
-  // Guardar trades en localStorage cada vez que cambien
   const saveTradesToStorage = (newTrades: Trade[]) => {
     setTrades(newTrades)
     localStorage.setItem('local_trading_trades', JSON.stringify(newTrades))
+  }
+
+  const handleSaveDateRisk = (date: string, riskVal: number) => {
+    const updated = { ...dateRisks, [date]: riskVal }
+    setDateRisks(updated)
+    localStorage.setItem('local_trading_date_risks', JSON.stringify(updated))
+
+    // Recalcular rMultiples de los trades de esa fecha
+    const recalculated = trades.map(t => {
+      if (t.date === date) {
+        const r = riskVal > 0 ? getTradePnl(t) / riskVal : 0
+        return { ...t, initialRisk: riskVal, rMultiple: r }
+      }
+      return t
+    })
+    saveTradesToStorage(recalculated)
+  }
+
+  const getRiskForDate = (date: string) => {
+    return dateRisks[date] !== undefined ? dateRisks[date] : defaultRisk
+  }
+
+  const getTradePnl = (t: Trade) => {
+    const gross = t.pnl || 0
+    const comm = t.commission || 0
+    return pnlMode === 'net' ? gross - comm : gross
   }
 
   const handleDeleteTrade = (id: string) => {
@@ -82,22 +117,65 @@ export default function TradingJournal() {
     setSelectedTradeIds(selectedTradeIds.filter(i => i !== id))
   }
 
-  const handleDeleteSelected = () => {
+  const handleExecuteBatchAction = () => {
     if (selectedTradeIds.length === 0) return
-    if (!confirm(`¿Eliminar los ${selectedTradeIds.length} trades seleccionados?`)) return
 
-    const updated = trades.filter(t => !selectedTradeIds.includes(t.id))
-    saveTradesToStorage(updated)
-    setSelectedTradeIds([])
-  }
+    if (batchActionType === 'delete') {
+      if (!confirm(`¿Eliminar los ${selectedTradeIds.length} trades seleccionados?`)) return
+      const updated = trades.filter(t => !selectedTradeIds.includes(t.id))
+      saveTradesToStorage(updated)
+      setSelectedTradeIds([])
+      setBatchActionType('')
+      return
+    }
 
-  const handleDeleteAllData = () => {
-    if (!confirm("⚠️ ATENCIÓN: ¿Estás completamente seguro de borrar TODOS tus datos de trading locales?")) return
-    saveTradesToStorage([])
-    setSelectedTradeIds([])
-    localStorage.removeItem('local_trading_trades')
-    alert("Todos los datos han sido eliminados.")
-    setShowImportModal(false)
+    if (batchActionType === 'addTag' && batchTagInput.trim()) {
+      const updated = trades.map(t => selectedTradeIds.includes(t.id) ? { ...t, tag: batchTagInput.trim() } : t)
+      saveTradesToStorage(updated)
+      setSelectedTradeIds([])
+      setBatchActionType('')
+      setBatchTagInput('')
+      alert('¡Etiqueta añadida con éxito!')
+      return
+    }
+
+    if (batchActionType === 'removeTag') {
+      const updated = trades.map(t => selectedTradeIds.includes(t.id) ? { ...t, tag: 'General' } : t)
+      saveTradesToStorage(updated)
+      setSelectedTradeIds([])
+      setBatchActionType('')
+      alert('¡Etiquetas eliminadas/restablecidas a General!')
+      return
+    }
+
+    if (batchActionType === 'setRisk') {
+      const newRisk = parseFloat(batchRiskInput)
+      if (isNaN(newRisk) || newRisk <= 0) {
+        alert('Introduce un riesgo válido en $')
+        return
+      }
+
+      // Actualizamos el riesgo para las fechas de los trades seleccionados
+      const affectedDates = new Set(trades.filter(t => selectedTradeIds.includes(t.id)).map(t => t.date))
+      const newDateRisks = { ...dateRisks }
+      affectedDates.forEach(d => { newDateRisks[d] = newRisk })
+      setDateRisks(newDateRisks)
+      localStorage.setItem('local_trading_date_risks', JSON.stringify(newDateRisks))
+
+      const updated = trades.map(t => {
+        if (selectedTradeIds.includes(t.id)) {
+          const risk = newRisk
+          const pnlVal = getTradePnl(t)
+          return { ...t, initialRisk: risk, rMultiple: risk > 0 ? pnlVal / risk : 0 }
+        }
+        return t
+      })
+      saveTradesToStorage(updated)
+      setSelectedTradeIds([])
+      setBatchActionType('')
+      alert('¡Riesgo 1R actualizado para los trades seleccionados!')
+      return
+    }
   }
 
   const handleSaveJournal = () => {
@@ -132,7 +210,7 @@ export default function TradingJournal() {
           const volumeIdx = getIdx(['Volume', 'Shares'])
           const priceIdx = getIdx(['Entry Price', 'Price'])
           const netPnlIdx = getIdx(['Net P&L', 'P&L'])
-          const rIdx = getIdx(['P&L (R)', 'rMultiple'])
+          const commIdx = getIdx(['Commission', 'Commissions', 'Fees'])
           const tagIdx = getIdx(['Tags', 'Tag'])
 
           for (let i = 1; i < lines.length; i++) {
@@ -146,8 +224,9 @@ export default function TradingJournal() {
               const formattedDate = rawDate.split(' ')[0] || new Date().toISOString().split('T')[0]
 
               const pnlVal = parseFloat(cols[netPnlIdx >= 0 ? netPnlIdx : 14]) || 0
-              const rawR = rIdx >= 0 ? cols[rIdx] : '0'
-              const parsedR = rawR ? parseFloat(rawR.replace('R', '')) : (dailyRisk > 0 ? pnlVal / dailyRisk : 0)
+              const commVal = commIdx >= 0 ? Math.abs(parseFloat(cols[commIdx]) || 0) : 0
+              const dayRisk = getRiskForDate(formattedDate)
+              const parsedR = dayRisk > 0 ? (pnlVal - commVal) / dayRisk : 0
               const parsedTag = tagIdx >= 0 && cols[tagIdx] ? cols[tagIdx].replace(/^"|"$/g, '') : 'Tradervue'
 
               newTradesToInsert.push({
@@ -158,9 +237,10 @@ export default function TradingJournal() {
                 shares: Math.abs(parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
                 pnl: pnlVal,
-                rMultiple: isNaN(parsedR) ? 0 : parsedR,
+                commission: commVal,
+                rMultiple: parsedR,
                 tag: parsedTag,
-                initialRisk: dailyRisk
+                initialRisk: dayRisk
               })
             }
           }
@@ -171,6 +251,7 @@ export default function TradingJournal() {
               const symbolVal = cols[0]?.trim()
               if (!symbolVal || symbolVal === 'Symbol') continue
               const pnlVal = parseFloat(cols[7]) || 0
+              const dayRisk = defaultRisk
 
               newTradesToInsert.push({
                 id: 'trade_' + Math.random().toString(36).substr(2, 9),
@@ -180,9 +261,10 @@ export default function TradingJournal() {
                 shares: 100,
                 price: 1.0,
                 pnl: pnlVal,
-                rMultiple: pnlVal / dailyRisk,
+                commission: 0,
+                rMultiple: dayRisk > 0 ? pnlVal / dayRisk : 0,
                 tag: 'General',
-                initialRisk: dailyRisk
+                initialRisk: dayRisk
               })
             }
           }
@@ -213,24 +295,6 @@ export default function TradingJournal() {
     reader.readAsText(file)
   }
 
-  const handleBatchUpdate = (updateData: { tag?: string; initialRisk?: number }) => {
-    if (selectedTradeIds.length === 0) return
-
-    const updatedTrades = trades.map(t => {
-      if (selectedTradeIds.includes(t.id)) {
-        const newRisk = updateData.initialRisk !== undefined ? updateData.initialRisk : (t.initialRisk || dailyRisk)
-        const newTag = updateData.tag !== undefined ? updateData.tag : t.tag
-        const newR = t.pnl / newRisk
-        return { ...t, initialRisk: newRisk, tag: newTag, rMultiple: newR }
-      }
-      return t
-    })
-
-    saveTradesToStorage(updatedTrades)
-    setSelectedTradeIds([])
-    alert('¡Actualización masiva realizada correctamente!')
-  }
-
   const filteredTrades = useMemo(() => {
     return trades.filter(t => {
       const matchTicker = filterTicker === '' || t.ticker.toLowerCase().includes(filterTicker.toLowerCase())
@@ -251,14 +315,18 @@ export default function TradingJournal() {
       const d = t.date
       if (!d) return
       if (!map[d]) map[d] = { pnl: 0, r: 0, count: 0, trades: [] }
-      const risk = t.initialRisk || dailyRisk
-      map[d].pnl += t.pnl
-      map[d].r += (t.rMultiple || (risk > 0 ? t.pnl / risk : 0))
+      
+      const tradePnl = getTradePnl(t)
+      const dayRisk = getRiskForDate(d)
+      const tradeR = dayRisk > 0 ? tradePnl / dayRisk : (t.rMultiple || 0)
+
+      map[d].pnl += tradePnl
+      map[d].r += tradeR
       map[d].count += 1
       map[d].trades.push(t)
     })
     return map
-  }, [trades, dailyRisk])
+  }, [trades, pnlMode, dateRisks, defaultRisk])
 
   const sortedDailyData = useMemo(() => {
     const dates = Object.keys(tradesByDate).sort()
@@ -301,38 +369,17 @@ export default function TradingJournal() {
           const tradeYear = parseInt(parts[0], 10)
           const tradeMonth = parseInt(parts[1], 10) - 1
           if (tradeYear === selectedYear && tradeMonth === monthIdx) {
-            pnlAcc += t.pnl
-            const risk = t.initialRisk || dailyRisk
-            rAcc += (t.rMultiple || (risk > 0 ? t.pnl / risk : 0))
+            const tradePnl = getTradePnl(t)
+            const dayRisk = getRiskForDate(t.date)
+            pnlAcc += tradePnl
+            rAcc += (dayRisk > 0 ? tradePnl / dayRisk : 0)
             countAcc += 1
           }
         }
       })
       return { pnl: pnlAcc, r: rAcc, count: countAcc }
     })
-  }, [trades, selectedYear, dailyRisk])
-
-  const totalPnl = useMemo(() => trades.reduce((acc, t) => acc + t.pnl, 0), [trades])
-  const totalR = useMemo(() => trades.reduce((acc, t) => {
-    const risk = t.initialRisk || dailyRisk
-    return acc + (t.rMultiple || (risk > 0 ? t.pnl / risk : 0))
-  }, 0), [trades, dailyRisk])
-
-  const winCount = useMemo(() => trades.filter(t => t.pnl > 0).length, [trades])
-  const lossCount = useMemo(() => trades.filter(t => t.pnl < 0).length, [trades])
-  const winRate = useMemo(() => trades.length > 0 ? ((winCount / trades.length) * 100).toFixed(1) : '0.0', [trades, winCount])
-  
-  const profitFactor = useMemo(() => {
-    const wins = trades.filter(t => t.pnl > 0).reduce((acc, t) => acc + t.pnl, 0)
-    const losses = Math.abs(trades.filter(t => t.pnl < 0).reduce((acc, t) => acc + t.pnl, 0))
-    if (losses === 0) return wins > 0 ? 'Infinite' : '0.00'
-    return (wins / losses).toFixed(2)
-  }, [trades])
-
-  const largestGain = useMemo(() => trades.length > 0 ? Math.max(...trades.map(t => t.pnl)) : 0, [trades])
-  const largestLoss = useMemo(() => trades.length > 0 ? Math.min(...trades.map(t => t.pnl)) : 0, [trades])
-  const largestGainR = useMemo(() => trades.length > 0 ? Math.max(...trades.map(t => t.rMultiple)) : 0, [trades])
-  const largestLossR = useMemo(() => trades.length > 0 ? Math.min(...trades.map(t => t.rMultiple)) : 0, [trades])
+  }, [trades, selectedYear, pnlMode, dateRisks, defaultRisk])
 
   const calendarWeeks = useMemo(() => {
     const firstDayOfMonth = new Date(selectedYear, selectedMonth, 1)
@@ -437,21 +484,29 @@ export default function TradingJournal() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-[#161b22] p-1 rounded-lg border border-slate-800">
+              <div className="flex items-center gap-4 flex-wrap">
+                {/* Selector Bruto / Neto */}
+                <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
+                  <button onClick={() => setPnlMode('net')} className={`px-3 py-1 rounded-md text-xs font-bold ${pnlMode === 'net' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>💼 Neto</button>
+                  <button onClick={() => setPnlMode('gross')} className={`px-3 py-1 rounded-md text-xs font-bold ${pnlMode === 'gross' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>🏷️ Bruto</button>
+                </div>
+
+                {/* Selector $ / R */}
+                <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
                   <button onClick={() => setDisplayMode('currency')} className={`px-3 py-1 rounded-md text-xs font-bold ${displayMode === 'currency' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>💵 Dólares ($)</button>
                   <button onClick={() => setDisplayMode('r')} className={`px-3 py-1 rounded-md text-xs font-bold ${displayMode === 'r' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>🎯 R-Multiple (R)</button>
                 </div>
+
                 {displayMode === 'r' && (
-                  <div className="flex items-center gap-1.5 bg-[#161b22] px-3 py-1 rounded-lg border border-slate-800">
-                    <span className="text-[11px] text-slate-400">1R = $</span>
-                    <input type="number" value={dailyRisk} onChange={(e) => setDailyRisk(Math.max(1, parseFloat(e.target.value) || 100))} className="w-16 bg-[#0b0e14] border border-slate-700 text-emerald-400 font-bold text-xs rounded px-1 text-center" />
+                  <div className="flex items-center gap-1.5 bg-[#161b22] px-3 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[11px] text-slate-400">R por Defecto ($):</span>
+                    <input type="number" value={defaultRisk} onChange={(e) => setDefaultRisk(Math.max(1, parseFloat(e.target.value) || 100))} className="w-16 bg-[#0b0e14] border border-slate-700 text-emerald-400 font-bold text-xs rounded px-1 text-center" />
                   </div>
                 )}
               </div>
 
               <div className="text-right">
-                <span className="text-xs text-slate-400 mr-2">Net {monthsFullNames[selectedMonth]}:</span>
+                <span className="text-xs text-slate-400 mr-2">Net {monthsFullNames[selectedMonth]} ({pnlMode.toUpperCase()}):</span>
                 <span className={`text-base font-bold ${monthlyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatVal(monthlyPnl, monthlyR)}</span>
               </div>
             </div>
@@ -476,7 +531,10 @@ export default function TradingJournal() {
             </div>
 
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2"><span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}</h2>
+              <h2 className="text-lg font-bold text-white flex items-center justify-between">
+                <span className="flex items-center gap-2"><span>📅</span> {monthsFullNames[selectedMonth]} {selectedYear}</span>
+                <span className="text-xs text-slate-400 font-normal">Modo: <strong className="text-emerald-400 uppercase">{pnlMode}</strong></span>
+              </h2>
 
               <div className="grid grid-cols-6 gap-2">
                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Total'].map((d, i) => (
@@ -522,17 +580,23 @@ export default function TradingJournal() {
         {/* 2. REPORTS */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center bg-[#121620] border border-slate-800 rounded-xl p-4 shadow-md">
-              <h2 className="text-base font-bold text-white flex items-center gap-2"><span>📊</span> Rendimiento y Estadísticas Avanzadas</h2>
-              <div className="flex items-center gap-2 bg-[#161b22] p-1 rounded-lg border border-slate-800">
-                <button onClick={() => setDisplayMode('currency')} className={`px-3 py-1 rounded-md text-xs font-bold ${displayMode === 'currency' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>💵 Dólares ($)</button>
-                <button onClick={() => setDisplayMode('r')} className={`px-3 py-1 rounded-md text-xs font-bold ${displayMode === 'r' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>🎯 R-Multiple (R)</button>
+            <div className="flex flex-col md:flex-row justify-between items-center bg-[#121620] border border-slate-800 rounded-xl p-4 shadow-md gap-4">
+              <h2 className="text-base font-bold text-white flex items-center gap-2"><span>📊</span> Rendimiento y Estadísticas ({pnlMode.toUpperCase()})</h2>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
+                  <button onClick={() => setPnlMode('net')} className={`px-3 py-1 rounded-md text-xs font-bold ${pnlMode === 'net' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>💼 Neto</button>
+                  <button onClick={() => setPnlMode('gross')} className={`px-3 py-1 rounded-md text-xs font-bold ${pnlMode === 'gross' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>🏷️ Bruto</button>
+                </div>
+                <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
+                  <button onClick={() => setDisplayMode('currency')} className={`px-3 py-1 rounded-md text-xs font-bold ${displayMode === 'currency' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>💵 Dólares ($)</button>
+                  <button onClick={() => setDisplayMode('r')} className={`px-3 py-1 rounded-md text-xs font-bold ${displayMode === 'r' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400'}`}>🎯 R-Multiple (R)</button>
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">GROSS DAILY {displayMode === 'currency' ? 'P&L ($)' : 'P&L (R)'}</span>
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">DAILY {pnlMode.toUpperCase()} {displayMode === 'currency' ? '($)' : '(R)'}</span>
                 <div className="h-64 flex items-end gap-1 border-b border-slate-800 pb-2 overflow-x-auto relative px-2">
                   <div className="absolute inset-0 flex items-center pointer-events-none"><div className="w-full border-t border-slate-800/80"></div></div>
                   {sortedDailyData.map((d, i) => {
@@ -558,7 +622,7 @@ export default function TradingJournal() {
               </div>
 
               <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">GROSS CUMULATIVE {displayMode === 'currency' ? 'P&L ($)' : 'P&L (R)'}</span>
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">CUMULATIVE {pnlMode.toUpperCase()} {displayMode === 'currency' ? '($)' : '(R)'}</span>
                 <div className="h-64 border-b border-slate-800 pb-2 relative flex items-end">
                   <svg className="w-full h-full overflow-visible z-10" viewBox="0 0 500 200" preserveAspectRatio="none">
                     {(() => {
@@ -584,11 +648,11 @@ export default function TradingJournal() {
           </div>
         )}
 
-        {/* 3. TRADES */}
+        {/* 3. TRADES (Con acciones masivas y configuración de riesgo por día) */}
         {activeTab === 'trades' && (
           <div className="space-y-6">
             <div className="bg-[#121620] border border-slate-800 rounded-xl p-5 shadow-xl flex flex-col md:flex-row gap-4 justify-between items-center">
-              <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
                 <input 
                   type="text" 
                   placeholder="Nueva etiqueta..." 
@@ -612,12 +676,16 @@ export default function TradingJournal() {
               </div>
 
               <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto">
+                <div className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
+                  <button onClick={() => setPnlMode('net')} className={`px-2.5 py-1 rounded text-xs font-bold ${pnlMode === 'net' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Neto</button>
+                  <button onClick={() => setPnlMode('gross')} className={`px-2.5 py-1 rounded text-xs font-bold ${pnlMode === 'gross' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Bruto</button>
+                </div>
                 <input 
                   type="text" 
                   placeholder="Filtrar Ticker..." 
                   value={filterTicker} 
                   onChange={(e) => setFilterTicker(e.target.value)}
-                  className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg focus:outline-none w-32"
+                  className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg focus:outline-none w-28"
                 />
                 <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)} className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg">
                   <option value="ALL">Todas las Etiquetas</option>
@@ -631,31 +699,56 @@ export default function TradingJournal() {
               </div>
             </div>
 
+            {/* Barra de Acciones Masivas cuando hay trades seleccionados */}
             {selectedTradeIds.length > 0 && (
-              <div className="bg-emerald-950/60 border border-emerald-800 rounded-xl p-4 flex items-center justify-between shadow-lg">
+              <div className="bg-emerald-950/60 border border-emerald-800 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-3 shadow-lg">
                 <span className="text-xs text-emerald-300 font-bold">{selectedTradeIds.length} trades seleccionados</span>
-                <div className="flex items-center gap-3">
+                
+                <div className="flex items-center gap-2 flex-wrap">
                   <select 
-                    onChange={(e) => e.target.value && handleBatchUpdate({ tag: e.target.value })} 
-                    className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-1.5 rounded-lg"
-                    defaultValue=""
+                    value={batchActionType}
+                    onChange={(e) => setBatchActionType(e.target.value)}
+                    className="bg-[#161b22] border border-slate-700 text-xs text-white px-3 py-2 rounded-lg"
                   >
-                    <option value="" disabled>Asignar etiqueta masiva...</option>
-                    {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="">Seleccionar acción masiva...</option>
+                    <option value="setRisk">Establecer Riesgo 1R ($)</option>
+                    <option value="addTag">Añadir Etiqueta</option>
+                    <option value="removeTag">Quitar Etiqueta (a General)</option>
+                    <option value="delete">Eliminar trades seleccionados</option>
                   </select>
-                  <button 
-                    onClick={() => {
-                      const val = prompt("Nuevo riesgo inicial (1R $):", String(dailyRisk))
-                      if (val && !isNaN(Number(val))) handleBatchUpdate({ initialRisk: Number(val) })
-                    }}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
-                  >
-                    Establecer Riesgo 1R
-                  </button>
-                  <button onClick={handleDeleteSelected} className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
-                    🗑️ Eliminar Seleccionados
-                  </button>
-                  <button onClick={() => setSelectedTradeIds([])} className="text-xs text-slate-400 hover:text-white">Deseleccionar</button>
+
+                  {batchActionType === 'setRisk' && (
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        value={batchRiskInput} 
+                        onChange={(e) => setBatchRiskInput(e.target.value)}
+                        placeholder="Riesgo 1R ($)" 
+                        className="w-24 bg-[#161b22] border border-slate-700 text-xs text-white px-2 py-2 rounded-lg text-center"
+                      />
+                      <button onClick={handleExecuteBatchAction} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg">Aplicar</button>
+                    </div>
+                  )}
+
+                  {batchActionType === 'addTag' && (
+                    <div className="flex items-center gap-1">
+                      <select 
+                        value={batchTagInput} 
+                        onChange={(e) => setBatchTagInput(e.target.value)}
+                        className="bg-[#161b22] border border-slate-700 text-xs text-white px-2 py-2 rounded-lg"
+                      >
+                        <option value="" disabled>Elige etiqueta...</option>
+                        {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <button onClick={handleExecuteBatchAction} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg">Aplicar</button>
+                    </div>
+                  )}
+
+                  {(batchActionType === 'removeTag' || batchActionType === 'delete') && (
+                    <button onClick={handleExecuteBatchAction} className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-2 rounded-lg">Confirmar Acción</button>
+                  )}
+
+                  <button onClick={() => setSelectedTradeIds([])} className="text-xs text-slate-400 hover:text-white ml-2">Deseleccionar</button>
                 </div>
               </div>
             )}
@@ -680,57 +773,79 @@ export default function TradingJournal() {
                       <th className="p-3">Acción</th>
                       <th className="p-3">Shares</th>
                       <th className="p-3">Precio</th>
-                      <th className="p-3">Etiqueta (Tag)</th>
-                      <th className="p-3">P&L ($)</th>
+                      <th className="p-3">Riesgo 1R ($)</th>
+                      <th className="p-3">Etiqueta</th>
+                      <th className="p-3">Comisión</th>
+                      <th className="p-3">P&L ({pnlMode.toUpperCase()})</th>
                       <th className="p-3">R-Multiple</th>
-                      <th className="p-3 text-center">Gráfico 📈</th>
+                      <th className="p-3 text-center">Gráfico</th>
                       <th className="p-3 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {filteredTrades.length > 0 ? (
-                      filteredTrades.map(t => (
-                        <tr key={t.id} className="hover:bg-[#161b22]/50">
-                          <td className="p-3">
-                            <input 
-                              type="checkbox" 
-                              checked={selectedTradeIds.includes(t.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) setSelectedTradeIds([...selectedTradeIds, t.id])
-                                else setSelectedTradeIds(selectedTradeIds.filter(id => id !== t.id))
-                              }}
-                            />
-                          </td>
-                          <td className="p-3">{t.date}</td>
-                          <td className="p-3 font-bold text-white">{t.ticker}</td>
-                          <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.action.includes('L') || t.action === 'B' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}>{t.action}</span></td>
-                          <td className="p-3">{t.shares}</td>
-                          <td className="p-3">${t.price}</td>
-                          <td className="p-3">
-                            <select 
-                              value={t.tag || 'General'} 
-                              onChange={(e) => {
-                                const newTag = e.target.value
-                                const updated = trades.map(item => item.id === t.id ? { ...item, tag: newTag } : item)
-                                saveTradesToStorage(updated)
-                              }}
-                              className="bg-[#161b22] border border-slate-700 text-xs text-white rounded px-2 py-1"
-                            >
-                              {availableTags.map(tagOpt => <option key={tagOpt} value={tagOpt}>{tagOpt}</option>)}
-                            </select>
-                          </td>
-                          <td className={`p-3 font-semibold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${t.pnl.toFixed(2)}</td>
-                          <td className={`p-3 font-semibold ${t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{t.rMultiple >= 0 ? `+${t.rMultiple.toFixed(2)}R` : `${t.rMultiple.toFixed(2)}R`}</td>
-                          <td className="p-3 text-center">
-                            <button onClick={() => setActiveChartTrade(t)} className="bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded text-xs text-emerald-400 font-semibold shadow">Ver Gráfico</button>
-                          </td>
-                          <td className="p-3 text-center">
-                            <button onClick={() => handleDeleteTrade(t.id)} className="text-rose-400 hover:text-rose-300 px-2 py-1 rounded text-xs font-bold" title="Eliminar trade">🗑️</button>
-                          </td>
-                        </tr>
-                      ))
+                      filteredTrades.map(t => {
+                        const tradePnl = getTradePnl(t)
+                        const currentDayRisk = getRiskForDate(t.date)
+                        const tradeR = currentDayRisk > 0 ? tradePnl / currentDayRisk : 0
+
+                        return (
+                          <tr key={t.id} className="hover:bg-[#161b22]/50">
+                            <td className="p-3">
+                              <input 
+                                type="checkbox" 
+                                checked={selectedTradeIds.includes(t.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedTradeIds([...selectedTradeIds, t.id])
+                                  else setSelectedTradeIds(selectedTradeIds.filter(id => id !== t.id))
+                                }}
+                              />
+                            </td>
+                            <td className="p-3">{t.date}</td>
+                            <td className="p-3 font-bold text-white">{t.ticker}</td>
+                            <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.action.includes('L') || t.action === 'B' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}>{t.action}</span></td>
+                            <td className="p-3">{t.shares}</td>
+                            <td className="p-3">${t.price}</td>
+                            <td className="p-3">
+                              <input 
+                                type="number"
+                                value={currentDayRisk}
+                                onChange={(e) => handleSaveDateRisk(t.date, parseFloat(e.target.value) || 100)}
+                                className="w-20 bg-[#0b0e14] border border-slate-700 text-emerald-400 font-bold text-xs rounded px-1.5 py-1 text-center"
+                                title="Riesgo 1R para esta fecha"
+                              />
+                            </td>
+                            <td className="p-3">
+                              <select 
+                                value={t.tag || 'General'} 
+                                onChange={(e) => {
+                                  const newTag = e.target.value
+                                  const updated = trades.map(item => item.id === t.id ? { ...item, tag: newTag } : item)
+                                  saveTradesToStorage(updated)
+                                }}
+                                className="bg-[#161b22] border border-slate-700 text-xs text-white rounded px-2 py-1"
+                              >
+                                {availableTags.map(tagOpt => <option key={tagOpt} value={tagOpt}>{tagOpt}</option>)}
+                              </select>
+                            </td>
+                            <td className="p-3 text-slate-400">${(t.commission || 0).toFixed(2)}</td>
+                            <td className={`p-3 font-semibold ${tradePnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {tradePnl >= 0 ? `+$${tradePnl.toFixed(2)}` : `-$${Math.abs(tradePnl).toFixed(2)}`}
+                            </td>
+                            <td className={`p-3 font-semibold ${tradeR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {tradeR >= 0 ? `+${tradeR.toFixed(2)}R` : `${tradeR.toFixed(2)}R`}
+                            </td>
+                            <td className="p-3 text-center">
+                              <button onClick={() => setActiveChartTrade(t)} className="bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded text-xs text-emerald-400 font-semibold shadow">Ver Gráfico</button>
+                            </td>
+                            <td className="p-3 text-center">
+                              <button onClick={() => handleDeleteTrade(t.id)} className="text-rose-400 hover:text-rose-300 px-2 py-1 rounded text-xs font-bold" title="Eliminar trade">🗑️</button>
+                            </td>
+                          </tr>
+                        )
+                      })
                     ) : (
-                      <tr><td colSpan={11} className="p-6 text-center text-slate-500">No hay operaciones que coincidan con los filtros.</td></tr>
+                      <tr><td colSpan={13} className="p-6 text-center text-slate-500">No hay operaciones que coincidan con los filtros.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -771,24 +886,27 @@ export default function TradingJournal() {
                     <th className="p-3">Shares</th>
                     <th className="p-3">Precio</th>
                     <th className="p-3">Tag</th>
-                    <th className="p-3">P&L ($)</th>
+                    <th className="p-3">P&L ({pnlMode.toUpperCase()})</th>
                     <th className="p-3 text-center">Gráfico</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {tradesByDate[dayTradesModalDate]?.trades.map(t => (
-                    <tr key={t.id} className="hover:bg-[#161b22]/50">
-                      <td className="p-3 font-bold text-white">{t.ticker}</td>
-                      <td className="p-3">{t.action}</td>
-                      <td className="p-3">{t.shares}</td>
-                      <td className="p-3">${t.price}</td>
-                      <td className="p-3">{t.tag}</td>
-                      <td className={`p-3 font-semibold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${t.pnl.toFixed(2)}</td>
-                      <td className="p-3 text-center">
-                        <button onClick={() => { setActiveChartTrade(t); setDayTradesModalDate(null); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded text-xs">Ver Gráfico 📊</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {tradesByDate[dayTradesModalDate]?.trades.map(t => {
+                    const tradePnl = getTradePnl(t)
+                    return (
+                      <tr key={t.id} className="hover:bg-[#161b22]/50">
+                        <td className="p-3 font-bold text-white">{t.ticker}</td>
+                        <td className="p-3">{t.action}</td>
+                        <td className="p-3">{t.shares}</td>
+                        <td className="p-3">${t.price}</td>
+                        <td className="p-3">{t.tag}</td>
+                        <td className={`p-3 font-semibold ${tradePnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${tradePnl.toFixed(2)}</td>
+                        <td className="p-3 text-center">
+                          <button onClick={() => { setActiveChartTrade(t); setDayTradesModalDate(null); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded text-xs">Ver Gráfico 📊</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -807,7 +925,7 @@ export default function TradingJournal() {
                 <span className="text-xs text-slate-400">Fecha: {activeChartTrade.date} | Tag: <strong className="text-emerald-400">{activeChartTrade.tag}</strong></span>
               </div>
               <div className="text-right">
-                <span className={`text-base font-bold ${activeChartTrade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${activeChartTrade.pnl.toFixed(2)}</span>
+                <span className={`text-base font-bold ${getTradePnl(activeChartTrade) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${getTradePnl(activeChartTrade).toFixed(2)}</span>
               </div>
             </div>
 
@@ -816,7 +934,7 @@ export default function TradingJournal() {
               
               <div className="flex justify-between text-[11px] text-slate-500 z-10">
                 <span>Precio: ${activeChartTrade.price}</span>
-                <span>P&L: {activeChartTrade.rMultiple.toFixed(2)}R</span>
+                <span>P&L: {(getRiskForDate(activeChartTrade.date) > 0 ? getTradePnl(activeChartTrade) / getRiskForDate(activeChartTrade.date) : 0).toFixed(2)}R</span>
               </div>
 
               <div className="relative w-full h-36 flex items-center justify-center z-10">
@@ -827,7 +945,7 @@ export default function TradingJournal() {
                   <polygon points="190,105 200,90 210,105" fill={activeChartTrade.action.includes('L') || activeChartTrade.action === 'B' ? '#10b981' : '#f43f5e'} />
                   <text x="185" y="125" fill="#94a3b8" fontSize="10">Entrada</text>
 
-                  <polygon points="370,35 380,50 390,35" fill={activeChartTrade.pnl >= 0 ? '#10b981' : '#f43f5e'} />
+                  <polygon points="370,35 380,50 390,35" fill={getTradePnl(activeChartTrade) >= 0 ? '#10b981' : '#f43f5e'} />
                   <text x="365" y="25" fill="#94a3b8" fontSize="10">Salida</text>
                 </svg>
               </div>
@@ -851,7 +969,7 @@ export default function TradingJournal() {
             
             <div className="space-y-3 mb-4">
               {[
-                { id: 'tradervue', name: 'Tradervue', desc: 'Archivo trades.csv (importa tags automáticamente)' },
+                { id: 'tradervue', name: 'Tradervue', desc: 'Archivo trades.csv (importa comisiones y tags)' },
                 { id: 'das', name: 'DAS Trader Pro', desc: 'Exportación diaria CSV' },
                 { id: 'sage', name: 'Sage Pro (Sterling)', desc: 'Transactions.csv' },
               ].map((p) => (
@@ -874,7 +992,15 @@ export default function TradingJournal() {
 
             <div className="border-t border-slate-800 pt-4 mt-4">
               <button 
-                onClick={handleDeleteAllData}
+                onClick={() => {
+                  if (confirm("⚠️ ¿Eliminar todos los datos locales?")) {
+                    localStorage.removeItem('local_trading_trades')
+                    localStorage.removeItem('local_trading_date_risks')
+                    setTrades([])
+                    setDateRisks({})
+                    setShowImportModal(false)
+                  }
+                }}
                 className="w-full bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold py-2.5 rounded-lg transition-colors shadow"
               >
                 ⚠️ Eliminar todos los datos locales
