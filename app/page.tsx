@@ -1,8 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { supabase } from '../lib/supabase'
-import AuthModal from '../components/AuthModal'
 
 interface Trade {
   id: string
@@ -13,7 +11,6 @@ interface Trade {
   price: number
   pnl: number
   rMultiple: number
-  trader: string
   tag?: string
   initialRisk?: number
 }
@@ -22,10 +19,7 @@ type PlatformType = 'tradervue' | 'das' | 'sage'
 type DisplayMode = 'currency' | 'r'
 
 export default function TradingJournal() {
-  const [user, setUser] = useState<any>(null)
-  const [checkingAuth, setCheckingAuth] = useState(true)
-
-  const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal' | 'community'>('calendar')
+  const [activeTab, setActiveTab] = useState<'calendar' | 'reports' | 'trades' | 'journal'>('calendar')
   const [selectedYear, setSelectedYear] = useState<number>(2026)
   const [selectedMonth, setSelectedMonth] = useState<number>(9) // 9 = Octubre
   
@@ -51,107 +45,64 @@ export default function TradingJournal() {
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
-  // Estados para ordenar la tabla de Community
-  const [communitySortField, setCommunitySortField] = useState<'trader' | 'winRate' | 'riskReward' | 'pnlR' | 'pnlUsd'>('pnlUsd')
-  const [communitySortAsc, setCommunitySortAsc] = useState(false)
-
+  // Cargar datos locales al iniciar
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setUser(session?.user || null)
-      setCheckingAuth(false)
-    }
-
-    checkUser()
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null)
-      setCheckingAuth(false)
-    })
-
-    return () => {
-      listener.subscription.unsubscribe()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!user) return
-
-    const fetchTrades = async () => {
-      const { data, error } = await supabase
-        .from('trades')
-        .select('*')
-        .order('id', { ascending: false })
-
-      if (!error && data) {
-        const mapped = data.map((t: any) => {
-          const rawDate = t.date || t.trade_date || new Date().toISOString()
-          const cleanDate = rawDate.split('T')[0].split(' ')[0]
-          const risk = t.initial_risk || t.initialRisk || dailyRisk
-          return {
-            ...t,
-            date: cleanDate,
-            ticker: t.ticker || t.symbol || 'UNKNOWN',
-            rMultiple: t.r_multiple ?? (t.pnl ? t.pnl / risk : 0),
-            tag: t.tag || t.tags || 'General',
-            initialRisk: risk,
-            trader: t.trader || 'Trader'
-          }
-        })
-        setTrades(mapped)
-
-        const uniqueTags = Array.from(new Set(mapped.map((t: any) => t.tag).filter(Boolean)))
-        if (uniqueTags.length > 0) {
-          setAvailableTags(prev => Array.from(new Set([...prev, ...uniqueTags])))
-        }
+    const savedTrades = localStorage.getItem('local_trading_trades')
+    if (savedTrades) {
+      try {
+        setTrades(JSON.parse(savedTrades))
+      } catch (e) {
+        console.error("Error al cargar trades locales", e)
       }
     }
 
-    fetchTrades()
-  }, [user, dailyRisk])
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setTrades([])
-  }
-
-  const handleDeleteTrade = async (id: string) => {
-    if (!confirm("¿Estás seguro de eliminar esta operación?")) return
-    const { error } = await supabase.from('trades').delete().eq('id', id)
-    if (!error) {
-      setTrades(trades.filter(t => t.id !== id))
-      setSelectedTradeIds(selectedTradeIds.filter(i => i !== id))
-    } else {
-      alert("Error al eliminar la operación.")
+    const savedTags = localStorage.getItem('local_trading_tags')
+    if (savedTags) {
+      try {
+        setAvailableTags(JSON.parse(savedTags))
+      } catch (e) {}
     }
+
+    const savedNote = localStorage.getItem('local_trading_journal')
+    if (savedNote) {
+      setJournalNote(savedNote)
+    }
+  }, [])
+
+  // Guardar trades en localStorage cada vez que cambien
+  const saveTradesToStorage = (newTrades: Trade[]) => {
+    setTrades(newTrades)
+    localStorage.setItem('local_trading_trades', JSON.stringify(newTrades))
   }
 
-  const handleDeleteSelected = async () => {
+  const handleDeleteTrade = (id: string) => {
+    if (!confirm("¿Estás seguro de eliminar esta operación?")) return
+    const updated = trades.filter(t => t.id !== id)
+    saveTradesToStorage(updated)
+    setSelectedTradeIds(selectedTradeIds.filter(i => i !== id))
+  }
+
+  const handleDeleteSelected = () => {
     if (selectedTradeIds.length === 0) return
     if (!confirm(`¿Eliminar los ${selectedTradeIds.length} trades seleccionados?`)) return
 
-    const { error } = await supabase.from('trades').delete().in('id', selectedTradeIds)
-    if (!error) {
-      setTrades(trades.filter(t => !selectedTradeIds.includes(t.id)))
-      setSelectedTradeIds([])
-    } else {
-      alert("Error al eliminar los trades.")
-    }
+    const updated = trades.filter(t => !selectedTradeIds.includes(t.id))
+    saveTradesToStorage(updated)
+    setSelectedTradeIds([])
   }
 
-  const handleDeleteAllData = async () => {
-    if (!confirm("⚠️ ATENCIÓN: ¿Estás completamente seguro de borrar TODOS tus datos de trading?")) return
-    
-    const { error } = await supabase.from('trades').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    if (!error) {
-      setTrades([])
-      setSelectedTradeIds([])
-      alert("Todos los datos han sido eliminados correctamente.")
-      setShowImportModal(false)
-    } else {
-      alert("Error al vaciar la base de datos: " + error.message)
-    }
+  const handleDeleteAllData = () => {
+    if (!confirm("⚠️ ATENCIÓN: ¿Estás completamente seguro de borrar TODOS tus datos de trading locales?")) return
+    saveTradesToStorage([])
+    setSelectedTradeIds([])
+    localStorage.removeItem('local_trading_trades')
+    alert("Todos los datos han sido eliminados.")
+    setShowImportModal(false)
+  }
+
+  const handleSaveJournal = () => {
+    localStorage.setItem('local_trading_journal', journalNote)
+    alert("¡Nota guardada localmente con éxito!")
   }
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,10 +111,6 @@ export default function TradingJournal() {
 
     setIsUploading(true)
     setImportStatus(null)
-
-    const { data: { session } } = await supabase.auth.getSession()
-    const activeUserId = session?.user?.id || user?.id
-    const currentTraderName = session?.user?.email?.split('@')[0] || 'Trader'
 
     const reader = new FileReader()
     reader.onload = async (event) => {
@@ -174,7 +121,7 @@ export default function TradingJournal() {
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
         if (lines.length < 2) throw new Error("El archivo CSV no contiene suficientes datos.")
 
-        const newTradesToInsert: any[] = []
+        const newTradesToInsert: Trade[] = []
         const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
         const getIdx = (names: string[]) => headers.findIndex(h => names.some(n => h.toLowerCase() === n.toLowerCase()))
 
@@ -204,19 +151,16 @@ export default function TradingJournal() {
               const parsedTag = tagIdx >= 0 && cols[tagIdx] ? cols[tagIdx].replace(/^"|"$/g, '') : 'Tradervue'
 
               newTradesToInsert.push({
-                ...(activeUserId ? { user_id: activeUserId } : {}),
+                id: 'trade_' + Math.random().toString(36).substr(2, 9),
                 date: formattedDate,
-                trade_date: formattedDate,
-                symbol: symbolVal,
                 ticker: symbolVal,
                 action: cols[sideIdx >= 0 ? sideIdx : 3] || 'L',
                 shares: Math.abs(parseFloat(cols[volumeIdx >= 0 ? volumeIdx : 4])) || 100,
                 price: parseFloat(cols[priceIdx >= 0 ? priceIdx : 6]) || 0,
                 pnl: pnlVal,
-                r_multiple: isNaN(parsedR) ? 0 : parsedR,
+                rMultiple: isNaN(parsedR) ? 0 : parsedR,
                 tag: parsedTag,
-                initial_risk: dailyRisk,
-                trader: currentTraderName
+                initialRisk: dailyRisk
               })
             }
           }
@@ -229,49 +173,33 @@ export default function TradingJournal() {
               const pnlVal = parseFloat(cols[7]) || 0
 
               newTradesToInsert.push({
-                ...(activeUserId ? { user_id: activeUserId } : {}),
+                id: 'trade_' + Math.random().toString(36).substr(2, 9),
                 date: new Date().toISOString().split('T')[0],
-                trade_date: new Date().toISOString().split('T')[0],
-                symbol: symbolVal,
                 ticker: symbolVal,
                 action: cols[1] || 'L',
                 shares: 100,
                 price: 1.0,
                 pnl: pnlVal,
-                r_multiple: pnlVal / dailyRisk,
+                rMultiple: pnlVal / dailyRisk,
                 tag: 'General',
-                initial_risk: dailyRisk,
-                trader: currentTraderName
+                initialRisk: dailyRisk
               })
             }
           }
         }
 
         if (newTradesToInsert.length > 0) {
-          const { data, error } = await supabase.from('trades').insert(newTradesToInsert).select()
-          if (!error && data) {
-            const mappedNew = data.map((t: any) => {
-              const rawDate = t.date || t.trade_date || new Date().toISOString()
-              const cleanDate = rawDate.split('T')[0].split(' ')[0]
-              const risk = t.initial_risk || dailyRisk
-              return {
-                ...t,
-                date: cleanDate,
-                ticker: t.ticker || t.symbol || 'UNKNOWN',
-                rMultiple: t.r_multiple ?? (risk > 0 ? t.pnl / risk : 0),
-                tag: t.tag || 'General',
-                initialRisk: risk,
-                trader: t.trader || currentTraderName
-              }
-            })
-            setTrades(prev => [...mappedNew, ...prev])
-            setImportStatus({
-              type: 'success',
-              message: `¡Éxito! Se han importado ${data.length} operaciones.`
-            })
-          } else {
-            throw new Error(error?.message || "Error al insertar en la base de datos.")
-          }
+          const updated = [...newTradesToInsert, ...trades]
+          saveTradesToStorage(updated)
+
+          const uniqueTags = Array.from(new Set([...availableTags, ...newTradesToInsert.map(t => t.tag!).filter(Boolean)]))
+          setAvailableTags(uniqueTags)
+          localStorage.setItem('local_trading_tags', JSON.stringify(uniqueTags))
+
+          setImportStatus({
+            type: 'success',
+            message: `¡Éxito! Se han importado ${newTradesToInsert.length} operaciones.`
+          })
         } else {
           throw new Error("No se detectaron operaciones válidas.")
         }
@@ -285,7 +213,7 @@ export default function TradingJournal() {
     reader.readAsText(file)
   }
 
-  const handleBatchUpdate = async (updateData: { tag?: string; initialRisk?: number }) => {
+  const handleBatchUpdate = (updateData: { tag?: string; initialRisk?: number }) => {
     if (selectedTradeIds.length === 0) return
 
     const updatedTrades = trades.map(t => {
@@ -298,19 +226,7 @@ export default function TradingJournal() {
       return t
     })
 
-    setTrades(updatedTrades)
-
-    for (const id of selectedTradeIds) {
-      const target = updatedTrades.find(t => t.id === id)
-      if (target) {
-        await supabase.from('trades').update({
-          tag: target.tag,
-          initial_risk: target.initialRisk,
-          r_multiple: target.rMultiple
-        }).eq('id', id)
-      }
-    }
-
+    saveTradesToStorage(updatedTrades)
     setSelectedTradeIds([])
     alert('¡Actualización masiva realizada correctamente!')
   }
@@ -418,79 +334,6 @@ export default function TradingJournal() {
   const largestGainR = useMemo(() => trades.length > 0 ? Math.max(...trades.map(t => t.rMultiple)) : 0, [trades])
   const largestLossR = useMemo(() => trades.length > 0 ? Math.min(...trades.map(t => t.rMultiple)) : 0, [trades])
 
-  // Cálculo de Miembros para el Community Leaderboard
-  const communityMembers = useMemo(() => {
-    const map: { [traderName: string]: { trades: Trade[]; wins: number; totalPnl: number; totalR: number; grossWins: number; grossLosses: number } } = {}
-
-    trades.forEach(t => {
-      const name = t.trader || 'Trader'
-      if (!map[name]) {
-        map[name] = { trades: [], wins: 0, totalPnl: 0, totalR: 0, grossWins: 0, grossLosses: 0 }
-      }
-      map[name].trades.push(t)
-      map[name].totalPnl += t.pnl
-      map[name].totalR += t.rMultiple
-      if (t.pnl > 0) {
-        map[name].wins += 1
-        map[name].grossWins += t.pnl
-      } else if (t.pnl < 0) {
-        map[name].grossLosses += Math.abs(t.pnl)
-      }
-    })
-
-    const membersList = Object.keys(map).map(name => {
-      const data = map[name]
-      const totalTrades = data.trades.length
-      const wRate = totalTrades > 0 ? (data.wins / totalTrades) * 100 : 0
-      const rReward = data.grossLosses > 0 ? data.grossWins / data.grossLosses : (data.grossWins > 0 ? 99 : 0)
-
-      return {
-        trader: name,
-        totalTrades,
-        winRate: wRate,
-        riskReward: rReward,
-        pnlR: data.totalR,
-        pnlUsd: data.totalPnl
-      }
-    })
-
-    // Ordenamiento
-    return membersList.sort((a, b) => {
-      let valA = a[communitySortField]
-      let valB = b[communitySortField]
-      if (typeof valA === 'string') {
-        return communitySortAsc ? valA.localeCompare(valB as string) : (valB as string).localeCompare(valA)
-      }
-      return communitySortAsc ? (valA as number) - (valB as number) : (valB as number) - (valA as number)
-    })
-  }, [trades, communitySortField, communitySortAsc])
-
-  // Promedios globales de la comunidad
-  const communityAverages = useMemo(() => {
-    if (communityMembers.length === 0) return { avgWinRate: 0, avgRiskReward: 0, avgPnlR: 0, avgPnlUsd: 0 }
-    const sumWin = communityMembers.reduce((acc, m) => acc + m.winRate, 0)
-    const sumRR = communityMembers.reduce((acc, m) => acc + m.riskReward, 0)
-    const sumR = communityMembers.reduce((acc, m) => acc + m.pnlR, 0)
-    const sumUsd = communityMembers.reduce((acc, m) => acc + m.pnlUsd, 0)
-    const count = communityMembers.length
-
-    return {
-      avgWinRate: sumWin / count,
-      avgRiskReward: sumRR / count,
-      avgPnlR: sumR / count,
-      avgPnlUsd: sumUsd / count
-    }
-  }, [communityMembers])
-
-  const handleSort = (field: 'trader' | 'winRate' | 'riskReward' | 'pnlR' | 'pnlUsd') => {
-    if (communitySortField === field) {
-      setCommunitySortAsc(!communitySortAsc)
-    } else {
-      setCommunitySortField(field)
-      setCommunitySortAsc(false)
-    }
-  }
-
   const calendarWeeks = useMemo(() => {
     const firstDayOfMonth = new Date(selectedYear, selectedMonth, 1)
     const lastDayOfMonth = new Date(selectedYear, selectedMonth + 1, 0)
@@ -547,30 +390,22 @@ export default function TradingJournal() {
     }
   }
 
-  if (checkingAuth) {
-    return <div className="min-h-screen bg-[#0b0e14] flex items-center justify-center text-slate-400 text-sm">Verificando sesión...</div>
-  }
-
-  if (!user) {
-    return <AuthModal onSuccess={() => setCheckingAuth(true)} />
-  }
-
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-200 font-sans antialiased">
       <header className="border-b border-slate-800 bg-[#121620] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-6">
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-            Track Your Edge <span className="text-slate-400 font-normal text-sm">Small Caps Journal</span>
+            Track Your Edge <span className="text-slate-400 font-normal text-sm">Private Journal</span>
           </h1>
           <nav className="flex items-center gap-1 bg-[#161b22] p-1 rounded-lg border border-slate-800">
-            {(['calendar', 'reports', 'trades', 'journal', 'community'] as const).map(tab => (
+            {(['calendar', 'reports', 'trades', 'journal'] as const).map(tab => (
               <button 
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`px-3.5 py-1.5 rounded-md text-xs font-semibold capitalize transition-colors ${activeTab === tab ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'}`}
               >
-                {tab === 'calendar' ? '📅 Calendario' : tab === 'reports' ? '📊 Reports' : tab === 'trades' ? '⚡ Trades' : tab === 'journal' ? '📝 Journal' : '🏆 Community'}
+                {tab === 'calendar' ? '📅 Calendario' : tab === 'reports' ? '📊 Reports' : tab === 'trades' ? '⚡ Trades' : '📝 Journal'}
               </button>
             ))}
           </nav>
@@ -582,10 +417,6 @@ export default function TradingJournal() {
           >
             <span>📂</span> Importar / Gestionar CSV
           </button>
-          <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
-            <span className="text-xs text-slate-400 font-medium">{user.email}</span>
-            <button onClick={handleLogout} className="text-xs bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 px-3 py-1.5 rounded-md border border-slate-700 transition-colors">Salir</button>
-          </div>
         </div>
       </header>
 
@@ -768,7 +599,9 @@ export default function TradingJournal() {
                 <button 
                   onClick={() => {
                     if (newTagInput.trim() && !availableTags.includes(newTagInput.trim())) {
-                      setAvailableTags([...availableTags, newTagInput.trim()])
+                      const updatedTags = [...availableTags, newTagInput.trim()]
+                      setAvailableTags(updatedTags)
+                      localStorage.setItem('local_trading_tags', JSON.stringify(updatedTags))
                       setNewTagInput('')
                     }
                   }} 
@@ -876,10 +709,10 @@ export default function TradingJournal() {
                           <td className="p-3">
                             <select 
                               value={t.tag || 'General'} 
-                              onChange={async (e) => {
+                              onChange={(e) => {
                                 const newTag = e.target.value
-                                setTrades(trades.map(item => item.id === t.id ? { ...item, tag: newTag } : item))
-                                await supabase.from('trades').update({ tag: newTag }).eq('id', t.id)
+                                const updated = trades.map(item => item.id === t.id ? { ...item, tag: newTag } : item)
+                                saveTradesToStorage(updated)
                               }}
                               className="bg-[#161b22] border border-slate-700 text-xs text-white rounded px-2 py-1"
                             >
@@ -910,93 +743,19 @@ export default function TradingJournal() {
         {activeTab === 'journal' && (
           <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
             <h3 className="text-md font-bold text-white">📝 Diario de Trading & Notas Psicológicas</h3>
-            <textarea value={journalNote} onChange={(e) => setJournalNote(e.target.value)} placeholder="Escribe tus notas..." className="w-full bg-[#161b22] border border-slate-700 rounded-lg p-4 text-xs text-slate-200 h-32 focus:outline-none"></textarea>
-            <button onClick={() => alert('Nota guardada')} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md">Guardar Nota</button>
-          </div>
-        )}
-
-        {/* 5. COMMUNITY (Leaderboard Completo y Ordenable con Promedios) */}
-        {activeTab === 'community' && (
-          <div className="space-y-6">
-            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
-              <h3 className="text-md font-bold text-white flex items-center gap-2"><span>🏆</span> Promedios Globales de la Comunidad</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
-                  <span className="text-xs text-slate-400 font-medium">Win Ratio Medio</span>
-                  <div className="text-xl font-bold text-white mt-1">{communityAverages.avgWinRate.toFixed(1)}%</div>
-                </div>
-                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
-                  <span className="text-xs text-slate-400 font-medium">Risk/Reward Medio</span>
-                  <div className="text-xl font-bold text-white mt-1">{communityAverages.avgRiskReward.toFixed(2)}</div>
-                </div>
-                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
-                  <span className="text-xs text-slate-400 font-medium">P&L Medio (R)</span>
-                  <div className={`text-xl font-bold mt-1 ${communityAverages.avgPnlR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {communityAverages.avgPnlR >= 0 ? `+${communityAverages.avgPnlR.toFixed(2)}R` : `${communityAverages.avgPnlR.toFixed(2)}R`}
-                  </div>
-                </div>
-                <div className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
-                  <span className="text-xs text-slate-400 font-medium">P&L Medio ($)</span>
-                  <div className={`text-xl font-bold mt-1 ${communityAverages.avgPnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {communityAverages.avgPnlUsd >= 0 ? `+$${communityAverages.avgPnlUsd.toFixed(2)}` : `-$${Math.abs(communityAverages.avgPnlUsd).toFixed(2)}`}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-[#121620] border border-slate-800 rounded-xl p-6 shadow-xl space-y-4">
-              <h3 className="text-md font-bold text-white">📋 Leaderboard de Miembros (Ordenable)</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-[#161b22] text-slate-400 uppercase">
-                    <tr>
-                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('trader')}>
-                        Miembro {communitySortField === 'trader' ? (communitySortAsc ? '▲' : '▼') : ''}
-                      </th>
-                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('winRate')}>
-                        Win Ratio {communitySortField === 'winRate' ? (communitySortAsc ? '▲' : '▼') : ''}
-                      </th>
-                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('riskReward')}>
-                        Risk / Reward {communitySortField === 'riskReward' ? (communitySortAsc ? '▲' : '▼') : ''}
-                      </th>
-                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('pnlR')}>
-                        P&L (R) {communitySortField === 'pnlR' ? (communitySortAsc ? '▲' : '▼') : ''}
-                      </th>
-                      <th className="p-3 cursor-pointer hover:text-white" onClick={() => handleSort('pnlUsd')}>
-                        P&L ($) {communitySortField === 'pnlUsd' ? (communitySortAsc ? '▲' : '▼') : ''}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {communityMembers.length > 0 ? (
-                      communityMembers.map((m, idx) => (
-                        <tr key={idx} className="hover:bg-[#161b22]/50">
-                          <td className="p-3 font-bold text-white flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            {m.trader}
-                          </td>
-                          <td className="p-3">{m.winRate.toFixed(1)}%</td>
-                          <td className="p-3">{m.riskReward.toFixed(2)}</td>
-                          <td className={`p-3 font-bold ${m.pnlR >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {m.pnlR >= 0 ? `+${m.pnlR.toFixed(2)}R` : `${m.pnlR.toFixed(2)}R`}
-                          </td>
-                          <td className={`p-3 font-bold ${m.pnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {m.pnlUsd >= 0 ? `+$${m.pnlUsd.toFixed(2)}` : `-$${Math.abs(m.pnlUsd).toFixed(2)}`}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr><td colSpan={5} className="p-6 text-center text-slate-500">No hay datos de miembros disponibles.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <textarea 
+              value={journalNote} 
+              onChange={(e) => setJournalNote(e.target.value)} 
+              placeholder="Escribe tus notas aquí..." 
+              className="w-full bg-[#161b22] border border-slate-700 rounded-lg p-4 text-xs text-slate-200 h-64 focus:outline-none"
+            ></textarea>
+            <button onClick={handleSaveJournal} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-md">Guardar Nota Localmente</button>
           </div>
         )}
 
       </main>
 
+      {/* MODAL 1: Trades del Día */}
       {dayTradesModalDate && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl relative space-y-4 max-h-[85vh] overflow-y-auto">
@@ -1037,6 +796,7 @@ export default function TradingJournal() {
         </div>
       )}
 
+      {/* MODAL 2: Visor Gráfico */}
       {activeChartTrade && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-3xl w-full shadow-2xl relative space-y-5">
@@ -1081,12 +841,13 @@ export default function TradingJournal() {
         </div>
       )}
 
+      {/* Modal de Importación / Gestión */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#121620] border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative space-y-4">
             <button onClick={() => setShowImportModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white text-sm">✕</button>
-            <h3 className="text-lg font-bold text-white mb-1">Importar / Gestionar Datos</h3>
-            <p className="text-xs text-slate-400 mb-4">Selecciona tu plataforma o vacía tu base de datos</p>
+            <h3 className="text-lg font-bold text-white mb-1">Importar / Gestionar Datos Locales</h3>
+            <p className="text-xs text-slate-400 mb-4">Selecciona tu plataforma</p>
             
             <div className="space-y-3 mb-4">
               {[
@@ -1116,7 +877,7 @@ export default function TradingJournal() {
                 onClick={handleDeleteAllData}
                 className="w-full bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold py-2.5 rounded-lg transition-colors shadow"
               >
-                ⚠️ Eliminar todos los datos introducidos
+                ⚠️ Eliminar todos los datos locales
               </button>
             </div>
           </div>
